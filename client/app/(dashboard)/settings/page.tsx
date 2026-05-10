@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "sonner";
-import { Loader2, CheckCircle, XCircle, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, ExternalLink, Eye, EyeOff, Trash2, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -358,6 +358,102 @@ function CredentialsSettings() {
   );
 }
 
+function BlocklistSettings() {
+  const qc = useQueryClient();
+  const [input, setInput] = useState("");
+
+  const { data: emails = [], isLoading } = useQuery<string[]>({
+    queryKey: ["blocklist"],
+    queryFn: () => fetch("/api/blocklist").then((r) => r.json()).then((d) => d.data ?? []),
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (newEmails: string[]) =>
+      fetch("/api/blocklist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails: newEmails }),
+      }).then((r) => r.json()),
+    onSuccess: (res) => {
+      if (res.success) {
+        toast.success("Added to block list");
+        setInput("");
+        qc.invalidateQueries({ queryKey: ["blocklist"] });
+      } else {
+        toast.error(res.error ?? "Failed");
+      }
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (email: string) =>
+      fetch("/api/blocklist", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      }).then((r) => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["blocklist"] }),
+  });
+
+  function handleAdd() {
+    const newEmails = input
+      .split(/[\n,;]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.includes("@"));
+    if (!newEmails.length) return toast.error("No valid emails found");
+    addMutation.mutate(newEmails);
+  }
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Block List</CardTitle>
+          <CardDescription>Emails on this list will never be contacted — checked on every import and send</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Add emails (one per line, or comma/semicolon separated)</Label>
+            <Textarea
+              rows={4}
+              placeholder={"unsubscribed@company.com\ndonotemail@example.com"}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+            />
+          </div>
+          <Button onClick={handleAdd} disabled={addMutation.isPending || !input.trim()}>
+            {addMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Add to block list
+          </Button>
+
+          <Separator />
+
+          {isLoading ? (
+            <div className="h-24 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
+          ) : emails.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">No blocked emails yet</p>
+          ) : (
+            <div className="space-y-1 max-h-80 overflow-y-auto">
+              <p className="text-xs text-gray-500 mb-2">{emails.length} blocked email{emails.length !== 1 ? "s" : ""}</p>
+              {emails.map((email) => (
+                <div key={email} className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900 group">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">{email}</span>
+                  <button
+                    onClick={() => removeMutation.mutate(email)}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="space-y-6">
@@ -370,12 +466,16 @@ export default function SettingsPage() {
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="credentials">API & Credentials</TabsTrigger>
+          <TabsTrigger value="blocklist">Block List</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="mt-6">
           <GeneralSettings />
         </TabsContent>
         <TabsContent value="credentials" className="mt-6">
           <CredentialsSettings />
+        </TabsContent>
+        <TabsContent value="blocklist" className="mt-6">
+          <BlocklistSettings />
         </TabsContent>
       </Tabs>
     </div>

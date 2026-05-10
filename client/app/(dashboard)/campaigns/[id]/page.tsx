@@ -259,30 +259,86 @@ function EditCampaignDialog({
   );
 }
 
-// ─── Import Dialog ─────────────────────────────────────────────────────────────
+// ─── Import Dialog with Column Mapper ─────────────────────────────────────────
+
+const FIELD_DEFS = [
+  { key: "first_name", label: "First Name", required: true },
+  { key: "email",      label: "Email",      required: true },
+  { key: "subject",    label: "Subject",    required: true },
+  { key: "body",       label: "Body",       required: true },
+  { key: "last_name",  label: "Last Name",  required: false },
+  { key: "company",    label: "Company",    required: false },
+  { key: "followup_1", label: "Follow-up 1",required: false },
+  { key: "followup_2", label: "Follow-up 2",required: false },
+  { key: "followup_3", label: "Follow-up 3",required: false },
+];
+
+function autoMap(columns: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  const aliases: Record<string, string[]> = {
+    first_name: ["first_name","firstname","first","fname","name","first name"],
+    last_name:  ["last_name","lastname","last","lname","surname","last name"],
+    email:      ["email","email address","e-mail","mail"],
+    company:    ["company","company name","organization","org","account"],
+    subject:    ["subject","subject line","email subject"],
+    body:       ["body","email body","message","content","email content"],
+    followup_1: ["followup_1","follow_up_1","followup1","follow up 1","follow-up 1"],
+    followup_2: ["followup_2","follow_up_2","followup2","follow up 2","follow-up 2"],
+    followup_3: ["followup_3","follow_up_3","followup3","follow up 3","follow-up 3"],
+  };
+  for (const [field, alts] of Object.entries(aliases)) {
+    const match = columns.find((c) => alts.includes(c.toLowerCase().trim()));
+    if (match) map[field] = match;
+  }
+  return map;
+}
+
+function applyMapping(rows: Record<string, string>[], mapping: Record<string, string>): Record<string, string>[] {
+  return rows.map((row) => {
+    const out: Record<string, string> = {};
+    for (const [field, col] of Object.entries(mapping)) {
+      if (col) out[field] = row[col] ?? "";
+    }
+    // pass through unmapped columns as custom variables
+    for (const [col, val] of Object.entries(row)) {
+      const isMapped = Object.values(mapping).includes(col);
+      if (!isMapped) out[col] = val;
+    }
+    return out;
+  });
+}
 
 function ImportDialog({
   open, onOpenChange, campaignId, onSuccess,
 }: {
   open: boolean; onOpenChange: (v: boolean) => void; campaignId: string; onSuccess: () => void;
 }) {
-  const [rows, setRows] = useState<Record<string, string>[]>([]);
+  const [step, setStep] = useState<"input" | "map" | "preview">("input");
+  const [rawRows, setRawRows] = useState<Record<string, string>[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
   const [filename, setFilename] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [importing, setImporting] = useState(false);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function parseRows(content: string, name?: string) {
+  function handleParsed(results: Papa.ParseResult<Record<string, string>>, name?: string) {
+    if (results.errors.length) setParseErrors(results.errors.slice(0, 3).map((e) => e.message));
+    const cols = Object.keys(results.data[0] ?? {});
+    setColumns(cols);
+    setRawRows(results.data);
+    setMapping(autoMap(cols));
+    if (name) setFilename(name);
+    setStep("map");
+  }
+
+  function parseContent(content: string, name?: string) {
     setParseErrors([]);
     Papa.parse<Record<string, string>>(content, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
-        if (results.errors.length) setParseErrors(results.errors.map((e) => e.message));
-        setRows(results.data);
-        if (name) setFilename(name);
-      },
+      complete: (r) => handleParsed(r, name),
     });
   }
 
@@ -290,26 +346,31 @@ function ImportDialog({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => parseRows(ev.target?.result as string, file.name);
+    reader.onload = (ev) => parseContent(ev.target?.result as string, file.name);
     reader.readAsText(file);
   }
 
+  const mappedRows = applyMapping(rawRows, mapping);
+
   async function handleImport() {
-    if (!rows.length) return;
     setImporting(true);
     try {
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId, leads: rows }),
+        body: JSON.stringify({ campaignId, leads: mappedRows }),
       }).then((r) => r.json());
       if (res.success) {
-        const { imported, errors } = res.data;
-        if (errors.length) toast.warning(`Imported ${imported} leads, ${errors.length} rows had errors`);
-        else toast.success(`Imported ${imported} leads`);
+        const { imported, blocked, duplicates, errors } = res.data;
+        const parts = [`Imported ${imported} leads`];
+        if (duplicates > 0) parts.push(`${duplicates} duplicates skipped`);
+        if (blocked > 0) parts.push(`${blocked} blocked`);
+        if (errors.length > imported + duplicates + blocked) parts.push(`${errors.length - duplicates - blocked} errors`);
+        if (duplicates > 0 || blocked > 0) toast.warning(parts.join(" · "));
+        else toast.success(parts[0]);
         onSuccess();
         onOpenChange(false);
-        setRows([]); setFilename(""); setPasteText("");
+        setStep("input"); setRawRows([]); setFilename(""); setPasteText("");
       } else {
         toast.error(res.error ?? "Import failed");
       }
@@ -317,105 +378,141 @@ function ImportDialog({
     finally { setImporting(false); }
   }
 
+  function reset() { setStep("input"); setRawRows([]); setFilename(""); setPasteText(""); setParseErrors([]); }
+
+  const missingRequired = FIELD_DEFS.filter((f) => f.required && !mapping[f.key]);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import Leads</DialogTitle>
+          <DialogTitle>Import Leads {step === "map" ? "— Map Columns" : step === "preview" ? "— Preview" : ""}</DialogTitle>
           <DialogDescription>
-            Required: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded text-xs">first_name, email, subject, body</code>.
-            Optional: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded text-xs">last_name, company, followup_1, followup_2, followup_3</code>.
-            Use <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded text-xs">{"{{first_name}}"}</code> for placeholders.
+            {step === "input" && "Upload or paste your CSV — columns will be auto-detected and mapped"}
+            {step === "map" && `${rawRows.length} rows detected — map your CSV columns to the required fields`}
+            {step === "preview" && `${mappedRows.length} leads ready to import`}
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="file">
-          <TabsList className="mb-4">
-            <TabsTrigger value="file"><Upload className="h-3.5 w-3.5 mr-1.5" />Upload CSV</TabsTrigger>
-            <TabsTrigger value="paste"><ClipboardPaste className="h-3.5 w-3.5 mr-1.5" />Paste CSV</TabsTrigger>
-          </TabsList>
-          <TabsContent value="file">
-            <div
-              className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 transition-colors"
-              onClick={() => fileRef.current?.click()}
-            >
-              <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {filename ? <span className="font-medium text-blue-600">{filename} — {rows.length} rows parsed</span> : "Click to select a .csv file"}
-              </p>
-              <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile} />
+        {step === "input" && (
+          <>
+            <Tabs defaultValue="file">
+              <TabsList className="mb-4">
+                <TabsTrigger value="file"><Upload className="h-3.5 w-3.5 mr-1.5" />Upload CSV</TabsTrigger>
+                <TabsTrigger value="paste"><ClipboardPaste className="h-3.5 w-3.5 mr-1.5" />Paste CSV</TabsTrigger>
+              </TabsList>
+              <TabsContent value="file">
+                <div
+                  className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 transition-colors"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {filename ? <span className="font-medium text-blue-600">{filename}</span> : "Click to select a CSV file — any column names work"}
+                  </p>
+                  <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile} />
+                </div>
+              </TabsContent>
+              <TabsContent value="paste">
+                <div className="space-y-3">
+                  <textarea
+                    className="flex min-h-[200px] w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs text-gray-900 dark:text-gray-100 font-mono resize-y"
+                    placeholder={"Paste any CSV here — column names don't need to be exact\n\nname,mail,headline,message\nJohn,john@co.com,Hello,..."}
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                  />
+                  <Button variant="outline" size="sm" onClick={() => parseContent(pasteText)} disabled={!pasteText.trim()}>
+                    Parse CSV
+                  </Button>
+                </div>
+              </TabsContent>
+            </Tabs>
+            <div className="text-xs">
+              <button className="text-blue-600 dark:text-blue-400 hover:underline" onClick={() => {
+                const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+                const url = URL.createObjectURL(blob); const a = document.createElement("a");
+                a.href = url; a.download = "leads_template.csv"; a.click(); URL.revokeObjectURL(url);
+              }}>Download template CSV</button>
             </div>
-          </TabsContent>
-          <TabsContent value="paste">
-            <div className="space-y-3">
-              <textarea
-                className="flex min-h-[200px] w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-xs text-gray-900 dark:text-gray-100 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 font-mono resize-y"
-                placeholder={`Paste CSV here:\n\nfirst_name,email,subject,body\nJohn,john@acme.com,Quick question,Hi John...`}
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-              />
-              <Button variant="outline" size="sm" onClick={() => parseRows(pasteText)} disabled={!pasteText.trim()}>
-                Parse CSV
-              </Button>
-              {rows.length > 0 && <p className="text-sm text-green-600 dark:text-green-400">{rows.length} rows parsed</p>}
-            </div>
-          </TabsContent>
-        </Tabs>
+          </>
+        )}
 
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <button
-            className="text-blue-600 dark:text-blue-400 hover:underline"
-            onClick={() => {
-              const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = "leads_template.csv"; a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            Download template CSV
-          </button>
-        </div>
-
-        {parseErrors.length > 0 && (
-          <div className="flex gap-2 p-3 bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-900">
-            <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-            <div className="text-xs text-red-700 dark:text-red-400 space-y-1">
-              {parseErrors.map((e, i) => <p key={i}>{e}</p>)}
+        {step === "map" && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">Detected columns: {columns.join(", ")}</p>
+            <div className="grid grid-cols-2 gap-3">
+              {FIELD_DEFS.map(({ key, label, required }) => (
+                <div key={key} className="space-y-1">
+                  <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                    {label} {required && <span className="text-red-500">*</span>}
+                  </label>
+                  <select
+                    className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-900 dark:text-gray-100"
+                    value={mapping[key] ?? ""}
+                    onChange={(e) => setMapping((m) => ({ ...m, [key]: e.target.value }))}
+                  >
+                    <option value="">— skip —</option>
+                    {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              ))}
             </div>
+            {missingRequired.length > 0 && (
+              <p className="text-xs text-red-500">Required: {missingRequired.map((f) => f.label).join(", ")}</p>
+            )}
+            {parseErrors.length > 0 && (
+              <div className="text-xs text-yellow-600 bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded">
+                {parseErrors.map((e, i) => <p key={i}>{e}</p>)}
+              </div>
+            )}
           </div>
         )}
 
-        {rows.length > 0 && (
+        {step === "preview" && (
           <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
             <table className="text-xs w-full">
               <thead>
                 <tr className="bg-gray-50 dark:bg-gray-900">
-                  {Object.keys(rows[0]).map((k) => (
+                  {["first_name","email","subject","body"].map((k) => (
                     <th key={k} className="px-3 py-2 text-left font-medium text-gray-500 whitespace-nowrap">{k}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rows.slice(0, 3).map((row, i) => (
+                {mappedRows.slice(0, 5).map((row, i) => (
                   <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
-                    {Object.values(row).map((v, j) => (
-                      <td key={j} className="px-3 py-2 text-gray-700 dark:text-gray-300 max-w-[150px] truncate">{v}</td>
+                    {["first_name","email","subject","body"].map((k) => (
+                      <td key={k} className="px-3 py-2 text-gray-700 dark:text-gray-300 max-w-[150px] truncate">{row[k]}</td>
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
-            {rows.length > 3 && <p className="text-center text-xs text-gray-400 py-2">+ {rows.length - 3} more rows</p>}
+            {mappedRows.length > 5 && <p className="text-center text-xs text-gray-400 py-2">+ {mappedRows.length - 5} more rows</p>}
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleImport} disabled={!rows.length || importing}>
-            {importing && <Loader2 className="h-4 w-4 animate-spin" />}
-            Import {rows.length > 0 ? `${rows.length} leads` : ""}
-          </Button>
+        <DialogFooter className="gap-2">
+          {step === "input" && (
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          )}
+          {step === "map" && (
+            <>
+              <Button variant="outline" onClick={() => setStep("input")}>Back</Button>
+              <Button onClick={() => setStep("preview")} disabled={missingRequired.length > 0}>
+                Preview {rawRows.length} rows
+              </Button>
+            </>
+          )}
+          {step === "preview" && (
+            <>
+              <Button variant="outline" onClick={() => setStep("map")}>Back</Button>
+              <Button onClick={handleImport} disabled={importing}>
+                {importing && <Loader2 className="h-4 w-4 animate-spin" />}
+                Import {mappedRows.length} leads
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

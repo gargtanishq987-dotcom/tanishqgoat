@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
-import { getAllLeads, batchCreateLeads, updateCampaign, getCampaignById, logEvent } from "@/lib/firestore-helpers";
+import {
+  getAllLeads, batchCreateLeads, updateCampaign, getCampaignById,
+  logEvent, getBlocklist, getLeadsByEmails,
+} from "@/lib/firestore-helpers";
 import { CsvRowSchema } from "@/lib/validations";
 import { replacePlaceholders, buildLeadVariables } from "@/lib/utils";
 import type { Lead } from "@/lib/types";
@@ -14,7 +17,6 @@ export async function GET(req: NextRequest) {
     const inboxId = searchParams.get("inboxId") ?? undefined;
     const positiveReply = searchParams.get("positiveReply") === "true" ? true : undefined;
     const bookedMeeting = searchParams.get("bookedMeeting") === "true" ? true : undefined;
-
     const leads = await getAllLeads({ campaignId, status, inboxId, positiveReply, bookedMeeting });
     return NextResponse.json({ success: true, data: leads });
   } catch (err) {
@@ -39,11 +41,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Campaign not found" }, { status: 404 });
     }
 
+    // Load blocklist and existing emails in parallel
+    const incomingEmails = rawLeads.map((r) => (r.email ?? "").toLowerCase().trim()).filter(Boolean);
+    const [blocklist, existingLeads] = await Promise.all([
+      getBlocklist(),
+      getLeadsByEmails(incomingEmails),
+    ]);
+
+    const blocklistSet = new Set(blocklist.map((e) => e.toLowerCase().trim()));
+    const existingEmailSet = new Set(existingLeads.map((l) => l.email.toLowerCase().trim()));
+
     const validLeads: Omit<Lead, "id" | "createdAt" | "updatedAt">[] = [];
     const errors: { row: number; error: string }[] = [];
+    let blocked = 0;
+    let duplicates = 0;
 
     for (let i = 0; i < rawLeads.length; i++) {
       const row = rawLeads[i];
+      const emailLower = (row.email ?? "").toLowerCase().trim();
+
+      // Check blocklist
+      if (blocklistSet.has(emailLower)) {
+        blocked++;
+        errors.push({ row: i + 1, error: `${row.email} is on the block list` });
+        continue;
+      }
+
+      // Check duplicates across all campaigns
+      if (existingEmailSet.has(emailLower)) {
+        duplicates++;
+        errors.push({ row: i + 1, error: `${row.email} already exists in a campaign` });
+        continue;
+      }
+
       const parsed = CsvRowSchema.safeParse(row);
       if (!parsed.success) {
         errors.push({ row: i + 1, error: parsed.error.issues[0]?.message ?? "Invalid row" });
@@ -65,8 +95,9 @@ export async function POST(req: NextRequest) {
         customVariables,
       });
 
-      // Use the subject/body exactly as provided in CSV (with placeholders replaced)
-      // No HTML wrapping — plain text only
+      // Mark email as seen so within-batch duplicates are also caught
+      existingEmailSet.add(emailLower);
+
       validLeads.push({
         campaignId,
         inboxId: "",
@@ -93,17 +124,13 @@ export async function POST(req: NextRequest) {
     }
 
     const ids = await batchCreateLeads(validLeads);
-
     for (const id of ids) {
       await logEvent({ leadId: id, campaignId, inboxId: null, type: "LEAD_CREATED", metadata: {} });
     }
-
-    await updateCampaign(campaignId, {
-      totalLeads: (campaign.totalLeads ?? 0) + validLeads.length,
-    });
+    await updateCampaign(campaignId, { totalLeads: (campaign.totalLeads ?? 0) + validLeads.length });
 
     return NextResponse.json(
-      { success: true, data: { imported: ids.length, errors } },
+      { success: true, data: { imported: ids.length, blocked, duplicates, errors } },
       { status: 201 }
     );
   } catch (err) {

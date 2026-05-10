@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getQueuedLeads, getDueFollowUps, getInboxById, getCampaignById,
+  getQueuedLeads, getDueFollowUps, getSentLeadsForReplyCheck,
+  getInboxById, getCampaignById,
   updateLead, updateInbox, updateCampaign, createMessage, logEvent,
   incrementAnalytics, resetDailySentCounts, getSettings, getMessagesByLead,
 } from "@/lib/firestore-helpers";
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const results = { sent: 0, followups: 0, errors: 0, skipped: 0 };
+  const results = { sent: 0, followups: 0, replies: 0, errors: 0, skipped: 0 };
 
   try {
     let settings;
@@ -29,9 +30,10 @@ export async function GET(req: NextRequest) {
     }
     await resetDailySentCounts(settings.timezone);
 
-    const [queuedLeads, dueFollowUps] = await Promise.all([
+    const [queuedLeads, dueFollowUps, sentLeads] = await Promise.all([
       getQueuedLeads(50),
       getDueFollowUps(50),
+      getSentLeadsForReplyCheck(20),
     ]);
 
     for (const lead of queuedLeads) {
@@ -57,6 +59,14 @@ export async function GET(req: NextRequest) {
           type: "FOLLOWUP_FAILED",
           metadata: { error: err instanceof Error ? err.message : "Unknown" },
         });
+      }
+    }
+
+    for (const lead of sentLeads) {
+      try {
+        await checkReply(lead, results, settings.timezone);
+      } catch {
+        // non-critical — skip silently
       }
     }
 
@@ -209,6 +219,34 @@ async function processFollowUp(lead: Lead, results: Record<string, number>): Pro
   ]);
 
   results.followups++;
+}
+
+async function checkReply(lead: Lead, results: Record<string, number>, timezone: string): Promise<void> {
+  if (!lead.gmailThreadId || !lead.gmailMessageId || !lead.inboxId) return;
+
+  const replied = await hasThreadReply({
+    inboxId: lead.inboxId,
+    threadId: lead.gmailThreadId,
+    ourMessageId: lead.gmailMessageId,
+  });
+
+  if (replied) {
+    await Promise.all([
+      updateLead(lead.id, { status: "replied", nextFollowUpAt: null }),
+      logEvent({
+        leadId: lead.id, campaignId: lead.campaignId, inboxId: lead.inboxId,
+        type: "REPLY_DETECTED",
+        metadata: { fromEmail: lead.email },
+      }),
+      incrementAnalytics({
+        date: todayString(timezone),
+        campaignId: lead.campaignId,
+        inboxId: lead.inboxId,
+        field: "replies",
+      }),
+    ]);
+    results.replies++;
+  }
 }
 
 function canSendFromInbox(inbox: Inbox): boolean {

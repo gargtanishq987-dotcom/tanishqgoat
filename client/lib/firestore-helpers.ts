@@ -304,12 +304,57 @@ export async function saveGmailCredentials(creds: {
   await db().collection("settings").doc("credentials").set(update, { merge: true });
 }
 
+// ─── Block List ───────────────────────────────────────────────────────────────
+
+export async function getBlocklist(): Promise<string[]> {
+  const doc = await db().collection("settings").doc("blocklist").get();
+  if (!doc.exists) return [];
+  return (doc.data()?.emails ?? []) as string[];
+}
+
+export async function addToBlocklist(emails: string[]): Promise<void> {
+  if (!emails.length) return;
+  await db().collection("settings").doc("blocklist").set(
+    { emails: admin.firestore.FieldValue.arrayUnion(...emails.map((e) => e.toLowerCase().trim())) },
+    { merge: true }
+  );
+}
+
+export async function removeFromBlocklist(email: string): Promise<void> {
+  await db().collection("settings").doc("blocklist").update({
+    emails: admin.firestore.FieldValue.arrayRemove(email.toLowerCase().trim()),
+  });
+}
+
+// ─── Email deduplication ──────────────────────────────────────────────────────
+
+export async function getLeadsByEmails(emails: string[]): Promise<Lead[]> {
+  if (!emails.length) return [];
+  const results: Lead[] = [];
+  for (let i = 0; i < emails.length; i += 30) {
+    const chunk = emails.slice(i, i + 30);
+    const snap = await db().collection("leads").where("email", "in", chunk).get();
+    results.push(...snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead)));
+  }
+  return results;
+}
+
 // ─── Worker Queue ─────────────────────────────────────────────────────────────
 
 export async function getQueuedLeads(limitCount = 50): Promise<Lead[]> {
   const snap = await db()
     .collection("leads")
     .where("status", "==", "queued")
+    .limit(limitCount)
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead));
+}
+
+export async function getSentLeadsForReplyCheck(limitCount = 20): Promise<Lead[]> {
+  const snap = await db()
+    .collection("leads")
+    .where("status", "==", "sent")
+    .where("nextFollowUpAt", "==", null)
     .limit(limitCount)
     .get();
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead));
