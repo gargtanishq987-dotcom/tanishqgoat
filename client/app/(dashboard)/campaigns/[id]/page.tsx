@@ -444,12 +444,24 @@ function ImportDialog({
       }).then((r) => r.json());
       if (res.success) {
         const { imported, blocked, duplicates, errors } = res.data;
+        const validationErrors = errors.length - duplicates - blocked;
         const parts = [`Imported ${imported} leads`];
         if (duplicates > 0) parts.push(`${duplicates} duplicates skipped`);
         if (blocked > 0) parts.push(`${blocked} blocked`);
-        if (errors.length > imported + duplicates + blocked) parts.push(`${errors.length - duplicates - blocked} errors`);
-        if (duplicates > 0 || blocked > 0) toast.warning(parts.join(" · "));
-        else toast.success(parts[0]);
+        if (validationErrors > 0) parts.push(`${validationErrors} invalid rows`);
+        const hasSkipped = duplicates > 0 || blocked > 0 || validationErrors > 0;
+        if (hasSkipped) {
+          toast.warning(parts.join(" · "));
+          // Surface the first few specific error messages so the user knows why rows were skipped
+          const validationErrs = errors.filter(
+            (e: { row: number; error: string }) => !e.error.includes("block list") && !e.error.includes("already exists")
+          ).slice(0, 3);
+          for (const e of validationErrs) {
+            toast.error(`Row ${e.row}: ${e.error}`, { duration: 8000 });
+          }
+        } else {
+          toast.success(parts.join(" · "));
+        }
         onSuccess();
         onOpenChange(false);
         setStep("input"); setRawRows([]); setFilename(""); setPasteText("");
