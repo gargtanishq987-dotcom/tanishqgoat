@@ -51,7 +51,7 @@ function GeneralSettings() {
     queryFn: () => fetch("/api/settings").then((r) => r.json()).then((d) => d.data),
   });
 
-  const { register, handleSubmit, reset, watch, setValue, formState: { isDirty } } = useForm<AppSettings>({
+  const { register, handleSubmit, reset, watch, setValue } = useForm<AppSettings>({
     defaultValues: {
       defaultDailyLimit: 30,
       minDelaySec: 30,
@@ -311,7 +311,7 @@ function GeneralSettings() {
       </Card>
 
       <div className="flex justify-end">
-        <Button type="submit" disabled={updateMutation.isPending || !isDirty}>
+        <Button type="submit" disabled={updateMutation.isPending}>
           {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           Save settings
         </Button>
