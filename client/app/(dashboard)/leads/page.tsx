@@ -206,7 +206,7 @@ export default function LeadsPage() {
 
   const allSelected = filtered.length > 0 && filtered.every((l) => selectedIds.has(l.id));
   const someSelected = filtered.some((l) => selectedIds.has(l.id));
-  const selectedCount = filtered.filter((l) => selectedIds.has(l.id)).size ?? [...selectedIds].filter((id) => filtered.some((l) => l.id === id)).length;
+
 
   const campaignMap = Object.fromEntries((campaigns ?? []).map((c) => [c.id, c.name]));
 
