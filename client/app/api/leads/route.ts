@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import {
-  getAllLeads, batchCreateLeads, batchDeleteLeads, updateCampaign, getCampaignById,
+  getAllLeads, batchCreateLeads, batchDeleteLeads, getLeadsByIds, updateCampaign, getCampaignById,
   logEvent, getBlocklist, getLeadsByEmails,
 } from "@/lib/firestore-helpers";
 import { CsvRowSchema } from "@/lib/validations";
@@ -148,17 +148,26 @@ export async function DELETE(req: NextRequest) {
   try {
     await requireSession();
     const body = await req.json().catch(() => null);
-    const { leadIds, campaignId } = body as { leadIds: string[]; campaignId: string };
-    if (!Array.isArray(leadIds) || !leadIds.length || !campaignId) {
-      return NextResponse.json({ success: false, error: "leadIds[] and campaignId required" }, { status: 400 });
+    const { leadIds } = body as { leadIds: string[] };
+    if (!Array.isArray(leadIds) || !leadIds.length) {
+      return NextResponse.json({ success: false, error: "leadIds[] required" }, { status: 400 });
     }
+    // Fetch leads to determine campaign groupings before deleting
+    const leads = await getLeadsByIds(leadIds);
     await batchDeleteLeads(leadIds);
-    const campaign = await getCampaignById(campaignId);
-    if (campaign) {
-      await updateCampaign(campaignId, {
-        totalLeads: Math.max(0, (campaign.totalLeads ?? 0) - leadIds.length),
-      });
+    // Decrement totalLeads on each affected campaign
+    const countByCampaign: Record<string, number> = {};
+    for (const l of leads) {
+      countByCampaign[l.campaignId] = (countByCampaign[l.campaignId] ?? 0) + 1;
     }
+    await Promise.all(
+      Object.entries(countByCampaign).map(async ([cid, count]) => {
+        const campaign = await getCampaignById(cid);
+        if (campaign) {
+          await updateCampaign(cid, { totalLeads: Math.max(0, (campaign.totalLeads ?? 0) - count) });
+        }
+      })
+    );
     return NextResponse.json({ success: true, data: { deleted: leadIds.length } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Server error";

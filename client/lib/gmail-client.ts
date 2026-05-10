@@ -132,7 +132,8 @@ export async function sendEmail(params: {
     ? `"${params.fromName}" <${params.fromEmail}>`
     : params.fromEmail;
 
-  const cleanBody = sanitizePlainText(params.body);
+  // Normalize to CRLF — RFC 2822 requires CRLF for all line endings in the message body
+  const cleanBody = sanitizePlainText(params.body).replace(/\n/g, "\r\n");
   const subject = params.threadId ? `Re: ${params.subject}` : params.subject;
 
   const headers: string[] = [
@@ -141,7 +142,7 @@ export async function sendEmail(params: {
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: quoted-printable",
+    "Content-Transfer-Encoding: 8bit",
   ];
 
   if (params.inReplyToMessageId) {

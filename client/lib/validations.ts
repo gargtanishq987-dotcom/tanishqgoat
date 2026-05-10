@@ -51,7 +51,7 @@ export type LeadUpdateInput = z.infer<typeof LeadUpdateSchema>;
 // ─── CSV Row ──────────────────────────────────────────────────────────────────
 
 export const CsvRowSchema = z.object({
-  first_name: z.string().min(1),
+  first_name: z.string().default(""),
   last_name: z.string().default(""),
   company: z.string().default(""),
   email: z.string().email(),
@@ -64,7 +64,7 @@ export const CsvRowSchema = z.object({
 
 export type CsvRow = z.infer<typeof CsvRowSchema>;
 
-export const REQUIRED_CSV_COLUMNS = ["first_name", "email", "subject", "body"] as const;
+export const REQUIRED_CSV_COLUMNS = ["email", "subject", "body"] as const;
 
 // ─── Send Test ────────────────────────────────────────────────────────────────
 

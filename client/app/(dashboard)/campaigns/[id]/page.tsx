@@ -337,13 +337,109 @@ function EditCampaignDialog({
   );
 }
 
+// ─── Test Email Dialog ────────────────────────────────────────────────────────
+
+function TestEmailDialog({
+  open, onOpenChange, inboxes, leads,
+}: {
+  open: boolean; onOpenChange: (v: boolean) => void;
+  inboxes: import("@/lib/types").Inbox[];
+  leads: import("@/lib/types").Lead[];
+}) {
+  const [to, setTo] = useState("");
+  const [inboxId, setInboxId] = useState("");
+  const [leadIdx, setLeadIdx] = useState(0);
+  const [sending, setSending] = useState(false);
+
+  const lead = leads[leadIdx];
+  const activeInboxes = inboxes.filter((i) => i.status === "active");
+
+  async function handleSend() {
+    if (!inboxId || !to || !lead) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inboxId, to, subject: lead.subject, body: lead.body }),
+      }).then((r) => r.json());
+      if (res.success) {
+        toast.success(`Test sent to ${to}`);
+        onOpenChange(false);
+      } else {
+        toast.error(res.error ?? "Send failed");
+      }
+    } catch { toast.error("Network error"); }
+    finally { setSending(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Send Test Email</DialogTitle>
+          <DialogDescription>Send a real email using one of your leads&apos; content to verify formatting before launching</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Send from inbox</Label>
+            <Select value={inboxId} onValueChange={setInboxId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select an inbox…" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeInboxes.map((i) => (
+                  <SelectItem key={i.id} value={i.id}>{i.email}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {activeInboxes.length === 0 && <p className="text-xs text-red-500">No active inboxes available</p>}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Send to (your test address)</Label>
+            <Input placeholder="you@example.com" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          {leads.length > 1 && (
+            <div className="space-y-1.5">
+              <Label>Preview lead</Label>
+              <Select value={String(leadIdx)} onValueChange={(v) => setLeadIdx(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {leads.slice(0, 20).map((l, i) => (
+                    <SelectItem key={l.id} value={String(i)}>{l.email}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {lead && (
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 space-y-2 text-xs">
+              <p className="font-medium text-gray-700 dark:text-gray-300">Subject: {lead.subject}</p>
+              <pre className="text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-sans max-h-32 overflow-y-auto">{lead.body}</pre>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleSend} disabled={sending || !inboxId || !to || !lead}>
+            {sending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Send test
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Import Dialog with Column Mapper ─────────────────────────────────────────
 
 const FIELD_DEFS = [
-  { key: "first_name", label: "First Name", required: true },
   { key: "email",      label: "Email",      required: true },
   { key: "subject",    label: "Subject",    required: true },
   { key: "body",       label: "Body",       required: true },
+  { key: "first_name", label: "First Name", required: false },
   { key: "last_name",  label: "Last Name",  required: false },
   { key: "company",    label: "Company",    required: false },
   { key: "followup_1", label: "Follow-up 1",required: false },
@@ -522,23 +618,12 @@ function ImportDialog({
                 </div>
               </TabsContent>
             </Tabs>
-            <div className="flex items-center justify-between">
-              <div className="text-xs">
-                <button className="text-blue-600 dark:text-blue-400 hover:underline" onClick={() => {
-                  const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
-                  const url = URL.createObjectURL(blob); const a = document.createElement("a");
-                  a.href = url; a.download = "leads_template.csv"; a.click(); URL.revokeObjectURL(url);
-                }}>Download template CSV</button>
-              </div>
-              <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={allowDuplicates}
-                  onChange={(e) => setAllowDuplicates(e.target.checked)}
-                  className="rounded border-gray-300"
-                />
-                Allow duplicate emails
-              </label>
+            <div className="text-xs">
+              <button className="text-blue-600 dark:text-blue-400 hover:underline" onClick={() => {
+                const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+                const url = URL.createObjectURL(blob); const a = document.createElement("a");
+                a.href = url; a.download = "leads_template.csv"; a.click(); URL.revokeObjectURL(url);
+              }}>Download template CSV</button>
             </div>
           </>
         )}
@@ -571,6 +656,18 @@ function ImportDialog({
                 {parseErrors.map((e, i) => <p key={i}>{e}</p>)}
               </div>
             )}
+            <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none border border-gray-200 dark:border-gray-700 rounded-md p-2">
+              <input
+                type="checkbox"
+                checked={allowDuplicates}
+                onChange={(e) => setAllowDuplicates(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Allow duplicate emails</span>
+                <span className="text-gray-400 ml-1">— import emails that already exist in other campaigns (blocklist still enforced)</span>
+              </span>
+            </label>
           </div>
         )}
 
@@ -637,6 +734,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const [scheduleEdit, setScheduleEdit] = useState<Lead | null>(null);
   const [replyViewLead, setReplyViewLead] = useState<Lead | null>(null);
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  const [testEmailOpen, setTestEmailOpen] = useState(false);
 
   const { data: campaign, isLoading: loadingCampaign } = useQuery<Campaign>({
     queryKey: ["campaign", id],
@@ -723,7 +821,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       fetch("/api/leads", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadIds, campaignId: id }),
+        body: JSON.stringify({ leadIds }),
       }).then((r) => r.json()),
     onSuccess: (res) => {
       if (res.success) {
@@ -804,6 +902,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Square className="h-4 w-4" /> Stop
             </Button>
           )}
+          <Button size="sm" variant="outline" onClick={() => setTestEmailOpen(true)} disabled={!leads?.length}>
+            <Send className="h-4 w-4" /> Send test
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4" /> Import leads
           </Button>
@@ -973,14 +1074,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                           {lead.company && <span className="text-gray-400 text-xs ml-1">· {lead.company}</span>}
                         </TableCell>
                         <TableCell className="text-gray-500 text-xs">{lead.email}</TableCell>
-                        <TableCell className="text-xs">
-                          {sendingInbox ? (
-                            <span className="text-gray-600 dark:text-gray-400">{sendingInbox.email}</span>
-                          ) : lead.inboxId ? (
-                            <span className="text-gray-400">ID: {lead.inboxId.slice(0, 8)}…</span>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
+                        <TableCell className="text-xs text-gray-500">
+                          {sendingInbox ? sendingInbox.email : "—"}
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1 flex-wrap items-center">
@@ -1078,6 +1173,13 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       </Card>
 
       {/* Dialogs */}
+      <TestEmailDialog
+        open={testEmailOpen}
+        onOpenChange={setTestEmailOpen}
+        inboxes={inboxes ?? []}
+        leads={leads ?? []}
+      />
+
       <ImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}

@@ -154,6 +154,17 @@ export async function deleteLead(id: string): Promise<void> {
   await db().collection("leads").doc(id).delete();
 }
 
+export async function getLeadsByIds(ids: string[]): Promise<Lead[]> {
+  if (!ids.length) return [];
+  const results: Lead[] = [];
+  for (let i = 0; i < ids.length; i += 30) {
+    const refs = ids.slice(i, i + 30).map((id) => db().collection("leads").doc(id));
+    const snaps = await db().getAll(...refs);
+    results.push(...snaps.filter((s) => s.exists).map((s) => ({ id: s.id, ...s.data() } as Lead)));
+  }
+  return results;
+}
+
 export async function batchDeleteLeads(ids: string[]): Promise<void> {
   for (let i = 0; i < ids.length; i += 500) {
     const batch = db().batch();
