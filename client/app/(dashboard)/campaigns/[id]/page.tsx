@@ -377,10 +377,10 @@ function applyMapping(rows: Record<string, string>[], mapping: Record<string, st
     for (const [field, col] of Object.entries(mapping)) {
       if (col) out[field] = row[col] ?? "";
     }
-    // pass through unmapped columns as custom variables
+    // pass through unmapped columns as custom variables (skip empty-named columns)
     for (const [col, val] of Object.entries(row)) {
       const isMapped = Object.values(mapping).includes(col);
-      if (!isMapped) out[col] = val;
+      if (!isMapped && col !== "") out[col] = val;
     }
     return out;
   });

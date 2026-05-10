@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       const customVariables: Record<string, string> = {};
       const knownKeys = new Set(["first_name", "last_name", "company", "email", "subject", "body", "followup_1", "followup_2", "followup_3"]);
       for (const [k, v] of Object.entries(row)) {
-        if (!knownKeys.has(k) && typeof v === "string") customVariables[k] = v;
+        if (k && !knownKeys.has(k) && typeof v === "string") customVariables[k] = v;
       }
 
       const vars = buildLeadVariables({
