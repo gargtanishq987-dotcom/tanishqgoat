@@ -343,6 +343,23 @@ export async function getLeadsByEmails(emails: string[]): Promise<Lead[]> {
 
 // ─── Worker Queue ─────────────────────────────────────────────────────────────
 
+export async function getPendingLeadsForCampaign(campaignId: string): Promise<Lead[]> {
+  const snap = await db()
+    .collection("leads")
+    .where("campaignId", "==", campaignId)
+    .where("status", "==", "pending")
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead));
+}
+
+export async function getActiveCampaigns(): Promise<Campaign[]> {
+  const snap = await db()
+    .collection("campaigns")
+    .where("status", "==", "active")
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Campaign));
+}
+
 export async function getQueuedLeads(limitCount = 50): Promise<Lead[]> {
   const snap = await db()
     .collection("leads")

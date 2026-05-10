@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import {
-  getCampaignById, updateCampaign, deleteCampaign, createCampaign, getAllLeads,
-  batchCreateLeads, logEvent
+  getCampaignById, updateCampaign, deleteCampaign, createCampaign,
+  getPendingLeadsForCampaign, updateLead, batchCreateLeads, logEvent
 } from "@/lib/firestore-helpers";
 import { CampaignSchema } from "@/lib/validations";
 import type { Campaign } from "@/lib/types";
@@ -55,19 +55,17 @@ async function handleAction(id: string, action: string): Promise<NextResponse> {
     await logEvent({ leadId: "", campaignId: id, inboxId: null, type: "CAMPAIGN_STARTED", metadata: {} });
 
     if (action === "start") {
-      const leads = await getAllLeads({ campaignId: id });
-      const pendingLeads = leads.filter((l) => l.status === "pending");
+      const pendingLeads = await getPendingLeadsForCampaign(id);
       const inboxIds = campaign.assignedInboxIds;
-      let inboxIndex = 0;
-
-      for (const lead of pendingLeads) {
-        const inboxId = inboxIds[inboxIndex % inboxIds.length];
-        await updateCampaign(id, {});
-        const { updateLead } = await import("@/lib/firestore-helpers");
-        await updateLead(lead.id, { status: "queued", inboxId });
-        await logEvent({ leadId: lead.id, campaignId: id, inboxId, type: "EMAIL_QUEUED", metadata: {} });
-        inboxIndex++;
-      }
+      await Promise.all(
+        pendingLeads.map((lead, i) => {
+          const inboxId = inboxIds[i % inboxIds.length];
+          return Promise.all([
+            updateLead(lead.id, { status: "queued", inboxId }),
+            logEvent({ leadId: lead.id, campaignId: id, inboxId, type: "EMAIL_QUEUED", metadata: {} }),
+          ]);
+        })
+      );
     }
 
     return NextResponse.json({ success: true, data: null });

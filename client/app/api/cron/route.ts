@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getQueuedLeads, getDueFollowUps, getSentLeadsForReplyCheck,
+  getActiveCampaigns, getPendingLeadsForCampaign,
   getInboxById, getCampaignById,
   updateLead, updateInbox, updateCampaign, createMessage, logEvent,
   incrementAnalytics, resetDailySentCounts, getSettings, updateSettings, getMessagesByLead,
@@ -43,6 +44,23 @@ export async function GET(req: NextRequest) {
     }
 
     await resetDailySentCounts(settings.timezone);
+
+    // Self-heal: queue any pending leads that belong to active campaigns
+    const activeCampaigns = await getActiveCampaigns();
+    for (const campaign of activeCampaigns) {
+      const pendingLeads = await getPendingLeadsForCampaign(campaign.id);
+      if (pendingLeads.length > 0) {
+        await Promise.all(
+          pendingLeads.map((lead, i) => {
+            const inboxId = campaign.assignedInboxIds[i % campaign.assignedInboxIds.length];
+            return Promise.all([
+              updateLead(lead.id, { status: "queued", inboxId }),
+              logEvent({ leadId: lead.id, campaignId: campaign.id, inboxId, type: "EMAIL_QUEUED", metadata: { source: "self_heal" } }),
+            ]);
+          })
+        );
+      }
+    }
 
     const [queuedLeads, dueFollowUps, sentLeads] = await Promise.all([
       getQueuedLeads(50),
