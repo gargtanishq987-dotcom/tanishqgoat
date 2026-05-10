@@ -234,20 +234,22 @@ export async function getAnalytics(days = 30): Promise<DailyAnalytics[]> {
 
 export async function getSettings(): Promise<AppSettings> {
   const doc = await db().collection("settings").doc("global").get();
-  if (!doc.exists) {
-    return {
-      timezone: "America/New_York",
-      defaultDailyLimit: 30,
-      minDelaySec: 60,
-      maxDelaySec: 300,
-      sendingWindowStart: "09:00",
-      sendingWindowEnd: "17:00",
-      unsubscribeText: "To unsubscribe, reply STOP.",
-      sendingDays: [1, 2, 3, 4, 5],
-      updatedAt: now(),
-    };
-  }
-  return doc.data() as AppSettings;
+  const defaults: AppSettings = {
+    timezone: "America/New_York",
+    defaultDailyLimit: 30,
+    minDelaySec: 60,
+    maxDelaySec: 300,
+    sendingWindowStart: "09:00",
+    sendingWindowEnd: "17:00",
+    unsubscribeText: "To unsubscribe, reply STOP.",
+    sendingDays: [1, 2, 3, 4, 5],
+    cronEnabled: true,
+    cronIntervalMinutes: 5,
+    lastCronRunAt: null,
+    updatedAt: now(),
+  };
+  if (!doc.exists) return defaults;
+  return { ...defaults, ...doc.data() } as AppSettings;
 }
 
 export async function updateSettings(data: Partial<AppSettings>): Promise<void> {

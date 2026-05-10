@@ -88,6 +88,8 @@ export const SettingsSchema = z.object({
   sendingWindowEnd: z.string().regex(/^\d{2}:\d{2}$/),
   unsubscribeText: z.string().max(500),
   sendingDays: z.array(z.number().int().min(0).max(6)),
+  cronEnabled: z.boolean().optional(),
+  cronIntervalMinutes: z.number().int().min(1).max(1440).optional(),
 });
 
 export type SettingsInput = z.infer<typeof SettingsSchema>;

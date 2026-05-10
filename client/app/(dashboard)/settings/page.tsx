@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
 import { toast } from "sonner";
-import { Loader2, CheckCircle, XCircle, ExternalLink, Eye, EyeOff, Trash2, Plus } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, ExternalLink, Eye, EyeOff, Trash2, Plus, Play, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import type { AppSettings } from "@/lib/types";
+import { formatRelative, formatDateTime } from "@/lib/utils";
 
 const TIMEZONES = [
   "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
@@ -25,8 +27,21 @@ const TIMEZONES = [
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const CRON_INTERVALS = [
+  { value: 1,   label: "Every 1 minute" },
+  { value: 2,   label: "Every 2 minutes" },
+  { value: 5,   label: "Every 5 minutes" },
+  { value: 10,  label: "Every 10 minutes" },
+  { value: 15,  label: "Every 15 minutes" },
+  { value: 30,  label: "Every 30 minutes" },
+  { value: 60,  label: "Every hour" },
+  { value: 120, label: "Every 2 hours" },
+  { value: 360, label: "Every 6 hours" },
+];
+
 function GeneralSettings() {
   const qc = useQueryClient();
+  const [runningNow, setRunningNow] = useState(false);
 
   const { data: settings, isLoading } = useQuery<AppSettings>({
     queryKey: ["settings"],
@@ -56,7 +71,28 @@ function GeneralSettings() {
     },
   });
 
+  async function handleRunNow() {
+    setRunningNow(true);
+    try {
+      const res = await fetch("/api/cron", { method: "POST" }).then((r) => r.json());
+      if (res.success) {
+        const d = res.data;
+        if (d) toast.success(`Done — sent ${d.sent}, follow-ups ${d.followups}, replies ${d.replies}`);
+        else toast.success("Worker ran successfully");
+        qc.invalidateQueries({ queryKey: ["settings"] });
+      } else {
+        toast.error(res.error ?? "Worker failed");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setRunningNow(false);
+    }
+  }
+
   const sendingDays = watch("sendingDays") ?? [];
+  const cronEnabled = watch("cronEnabled") ?? true;
+  const cronIntervalMinutes = watch("cronIntervalMinutes") ?? 5;
 
   function toggleDay(day: number) {
     const current = sendingDays;
@@ -157,6 +193,96 @@ function GeneralSettings() {
         </CardHeader>
         <CardContent>
           <Textarea rows={3} {...register("unsubscribeText")} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Worker Schedule
+          </CardTitle>
+          <CardDescription>Controls how often the email worker runs to process queued leads and follow-ups</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Enable automatic worker</p>
+              <p className="text-xs text-gray-500 mt-0.5">When disabled, no emails will be sent automatically</p>
+            </div>
+            <Controller
+              control={control}
+              name="cronEnabled"
+              render={({ field }) => (
+                <Switch
+                  checked={field.value ?? true}
+                  onCheckedChange={(v) => { field.onChange(v); setValue("cronEnabled", v, { shouldDirty: true }); }}
+                />
+              )}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Run interval</Label>
+            <Controller
+              control={control}
+              name="cronIntervalMinutes"
+              render={({ field }) => (
+                <Select
+                  value={String(field.value ?? 5)}
+                  onValueChange={(v) => { field.onChange(Number(v)); setValue("cronIntervalMinutes", Number(v), { shouldDirty: true }); }}
+                  disabled={!cronEnabled}
+                >
+                  <SelectTrigger className="w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CRON_INTERVALS.map((opt) => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            <p className="text-xs text-gray-500">
+              Vercel Cron fires every minute — this controls how often it actually processes emails
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">Last run</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">
+                {settings?.lastCronRunAt
+                  ? `${formatRelative(settings.lastCronRunAt)} · ${formatDateTime(settings.lastCronRunAt)}`
+                  : "Never"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">Next run</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">
+                {!cronEnabled
+                  ? "Disabled"
+                  : settings?.lastCronRunAt
+                    ? formatDateTime(settings.lastCronRunAt + (cronIntervalMinutes ?? 5) * 60_000)
+                    : "On next cron tick"}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRunNow}
+              disabled={runningNow}
+            >
+              {runningNow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Run worker now
+            </Button>
+            <p className="text-xs text-gray-400">Bypasses the interval — useful for testing or immediate sends</p>
+          </div>
         </CardContent>
       </Card>
 

@@ -30,7 +30,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return handleAction(id, body.action);
     }
 
-    const parsed = CampaignSchema.safeParse(body);
+    const parsed = CampaignSchema.partial().safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" },

@@ -3,17 +3,18 @@ import {
   getQueuedLeads, getDueFollowUps, getSentLeadsForReplyCheck,
   getInboxById, getCampaignById,
   updateLead, updateInbox, updateCampaign, createMessage, logEvent,
-  incrementAnalytics, resetDailySentCounts, getSettings, getMessagesByLead,
+  incrementAnalytics, resetDailySentCounts, getSettings, updateSettings, getMessagesByLead,
 } from "@/lib/firestore-helpers";
 import { sendEmail, hasThreadReply } from "@/lib/gmail-client";
 import { isWithinSendingWindow, todayString } from "@/lib/utils";
 import type { Lead, Inbox } from "@/lib/types";
 
 export async function GET(req: NextRequest) {
-  // Vercel Cron sets this header automatically
   const isCron = req.headers.get("x-vercel-cron") === "1";
   const secret = req.headers.get("x-worker-secret");
   const validSecret = secret && secret === process.env.WORKER_SECRET;
+  // manual=1 in query string bypasses the interval check (for "Run now" button)
+  const isManual = new URL(req.url).searchParams.get("manual") === "1";
 
   if (!isCron && !validSecret) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -28,6 +29,19 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       return NextResponse.json({ success: false, stage: "firebase_init", error: String(e) }, { status: 500 });
     }
+
+    // Respect enabled/interval unless this is a manual run
+    if (!isManual) {
+      if (!settings.cronEnabled) {
+        return NextResponse.json({ success: true, skipped: true, reason: "cron_disabled" });
+      }
+      const intervalMs = (settings.cronIntervalMinutes ?? 5) * 60_000;
+      if (settings.lastCronRunAt && Date.now() - settings.lastCronRunAt < intervalMs) {
+        const nextRun = new Date(settings.lastCronRunAt + intervalMs).toISOString();
+        return NextResponse.json({ success: true, skipped: true, reason: "too_soon", nextRun });
+      }
+    }
+
     await resetDailySentCounts(settings.timezone);
 
     const [queuedLeads, dueFollowUps, sentLeads] = await Promise.all([
@@ -70,6 +84,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    await updateSettings({ lastCronRunAt: Date.now() });
     return NextResponse.json({ success: true, data: results });
   } catch (err) {
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
@@ -254,4 +269,22 @@ function canSendFromInbox(inbox: Inbox): boolean {
   if (inbox.sentToday >= inbox.dailyLimit) return false;
   if (!isWithinSendingWindow(inbox.sendingWindowStart, inbox.sendingWindowEnd, inbox.timezone)) return false;
   return true;
+}
+
+// POST /api/cron — manual trigger from authenticated dashboard (no secret needed)
+export async function POST(req: NextRequest) {
+  const { requireSession } = await import("@/lib/session");
+  try {
+    await requireSession();
+  } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Re-use the GET handler with a synthetic manual request
+  const url = new URL(req.url);
+  url.searchParams.set("manual", "1");
+  const syntheticReq = new NextRequest(url, {
+    headers: { "x-worker-secret": process.env.WORKER_SECRET ?? "" },
+  });
+  return GET(syntheticReq);
 }

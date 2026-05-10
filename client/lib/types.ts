@@ -191,6 +191,9 @@ export interface AppSettings {
   sendingWindowEnd: string;
   unsubscribeText: string;
   sendingDays: number[]; // 0=Sun...6=Sat
+  cronEnabled: boolean;
+  cronIntervalMinutes: number; // how many minutes between worker runs
+  lastCronRunAt: number | null; // unix ms of last successful worker run
   updatedAt: number;
 }
 

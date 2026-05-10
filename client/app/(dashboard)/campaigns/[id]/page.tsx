@@ -56,19 +56,27 @@ const TIMEZONES = [
 const CSV_TEMPLATE = `first_name,last_name,company,email,subject,body,followup_1,followup_2,followup_3
 John,Doe,Acme Corp,john@acme.com,Quick question about {{company}},Hi {{first_name}},\n\nI noticed that {{company}} is growing fast and wanted to reach out.\n\nWould you be open to a quick 15-min chat?\n\nBest,\n[Your Name],Hi {{first_name}},\n\nJust following up on my last email — any thoughts?\n\nBest,\n[Your Name],,`;
 
-// ─── Email Preview Dialog ──────────────────────────────────────────────────────
+// ─── Email Preview Dialog (single lead + prev/next navigation) ────────────────
 
 function EmailPreviewDialog({
-  lead,
+  leads,
+  initialLeadIndex,
   followupIndex,
   open,
   onOpenChange,
 }: {
-  lead: Lead;
+  leads: Lead[];
+  initialLeadIndex: number;
   followupIndex: number;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const [leadIndex, setLeadIndex] = useState(initialLeadIndex);
+  const [tab, setTab] = useState(String(followupIndex));
+
+  const lead = leads[leadIndex];
+  if (!lead) return null;
+
   const vars = buildLeadVariables({
     firstName: lead.firstName,
     lastName: lead.lastName,
@@ -79,17 +87,42 @@ function EmailPreviewDialog({
 
   const bodies = [lead.body, lead.followup1, lead.followup2, lead.followup3];
   const labels = ["Initial email", "Follow-up 1", "Follow-up 2", "Follow-up 3"];
-  const [tab, setTab] = useState(String(followupIndex));
-
   const subject = replacePlaceholders(lead.subject, vars);
-  const body = replacePlaceholders(bodies[Number(tab)] ?? "", vars);
+
+  function goPrev() { setLeadIndex((i) => Math.max(0, i - 1)); setTab("0"); }
+  function goNext() { setLeadIndex((i) => Math.min(leads.length - 1, i + 1)); setTab("0"); }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Email Preview — {lead.firstName} {lead.lastName}</DialogTitle>
-          <DialogDescription>{lead.email}</DialogDescription>
+          <div className="flex items-center justify-between gap-2 pr-8">
+            <div>
+              <DialogTitle>Email Preview — {lead.firstName} {lead.lastName}</DialogTitle>
+              <DialogDescription>{lead.email}</DialogDescription>
+            </div>
+            {leads.length > 1 && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={goPrev}
+                  disabled={leadIndex === 0}
+                  className="h-7 w-7 rounded border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30"
+                >
+                  ‹
+                </button>
+                <span className="text-xs text-gray-500 w-14 text-center">
+                  {leadIndex + 1} / {leads.length}
+                </span>
+                <button
+                  onClick={goNext}
+                  disabled={leadIndex === leads.length - 1}
+                  className="h-7 w-7 rounded border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30"
+                >
+                  ›
+                </button>
+              </div>
+            )}
+          </div>
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={setTab}>
@@ -526,7 +559,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const qc = useQueryClient();
   const [importOpen, setImportOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [previewLead, setPreviewLead] = useState<{ lead: Lead; tab: number } | null>(null);
+  const [previewState, setPreviewState] = useState<{ leadIndex: number; tab: number } | null>(null);
+  const [previewAllOpen, setPreviewAllOpen] = useState(false);
   const [scheduleEdit, setScheduleEdit] = useState<Lead | null>(null);
 
   const { data: campaign, isLoading: loadingCampaign } = useQuery<Campaign>({
@@ -613,9 +647,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const queuedCount = (leads ?? []).filter((l) => l.status === "queued").length;
 
   function getScheduleLabel(lead: Lead): string {
-    if (lead.status === "queued") return `In queue (${campaign?.sendingWindowStart}–${campaign?.sendingWindowEnd})`;
-    if (lead.status === "sent" && lead.nextFollowUpAt) return `Follow-up: ${formatDateTime(lead.nextFollowUpAt)}`;
+    if (lead.status === "queued") return `Queued · ${campaign?.sendingWindowStart}–${campaign?.sendingWindowEnd} (${campaign?.timezone?.split("/")[1] ?? campaign?.timezone})`;
+    if (lead.status === "sent" && lead.nextFollowUpAt) return `Follow-up ${formatDateTime(lead.nextFollowUpAt)}`;
+    if (lead.status === "sent" && !lead.nextFollowUpAt) return `Sent ${lead.sentAt ? formatDateTime(lead.sentAt) : ""}`;
     if (lead.status === "pending") return "Waiting to start";
+    if (lead.status === "replied") return lead.sentAt ? `Replied · sent ${formatDate(lead.sentAt)}` : "Replied";
     return "—";
   }
 
@@ -737,6 +773,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <FileText className="h-4 w-4" />
               Leads ({leads?.length ?? 0})
             </CardTitle>
+            {(leads?.length ?? 0) > 0 && (
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setPreviewAllOpen(true)}>
+                <Eye className="h-3.5 w-3.5 mr-1" /> Preview all
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -815,7 +856,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            onClick={() => setPreviewLead({ lead, tab: lead.currentFollowUp ?? 0 })}
+                            onClick={() => setPreviewState({ leadIndex: leads.indexOf(lead), tab: lead.currentFollowUp ?? 0 })}
                             title="Preview email"
                           >
                             <Eye className="h-3.5 w-3.5" />
@@ -829,7 +870,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => setPreviewLead({ lead, tab: 0 })}>
+                              <DropdownMenuItem onClick={() => setPreviewState({ leadIndex: leads.indexOf(lead), tab: 0 })}>
                                 <Eye className="h-4 w-4 mr-2" /> Preview email
                               </DropdownMenuItem>
                               {!lead.positiveReply && (
@@ -882,12 +923,23 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         />
       )}
 
-      {previewLead && (
+      {previewState && leads && (
         <EmailPreviewDialog
-          lead={previewLead.lead}
-          followupIndex={previewLead.tab}
-          open={!!previewLead}
-          onOpenChange={(v) => { if (!v) setPreviewLead(null); }}
+          leads={leads}
+          initialLeadIndex={previewState.leadIndex}
+          followupIndex={previewState.tab}
+          open={!!previewState}
+          onOpenChange={(v) => { if (!v) setPreviewState(null); }}
+        />
+      )}
+
+      {previewAllOpen && leads && leads.length > 0 && (
+        <EmailPreviewDialog
+          leads={leads}
+          initialLeadIndex={0}
+          followupIndex={0}
+          open={previewAllOpen}
+          onOpenChange={(v) => { if (!v) setPreviewAllOpen(false); }}
         />
       )}
 

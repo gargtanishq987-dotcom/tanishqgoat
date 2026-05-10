@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Mail, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { APP_VERSION } from "@/lib/version";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,6 +41,7 @@ export default function LoginPage() {
         </div>
         <CardTitle>Welcome</CardTitle>
         <CardDescription>Click below to enter the dashboard</CardDescription>
+        <span className="inline-block text-xs font-mono text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{APP_VERSION}</span>
       </CardHeader>
       <CardContent>
         <Button className="w-full" onClick={onLogin} disabled={loading}>
