@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
       getAnalytics(days),
       getAllCampaigns(),
       getAllInboxes(),
-      getAllLeads(),
+      getAllLeads({ limit: 2000 }),
     ]);
 
     const totalSent = leads.filter((l) => l.status !== "pending" && l.status !== "queued").length;
