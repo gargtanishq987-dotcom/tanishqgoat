@@ -516,7 +516,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const queuedCount = (leads ?? []).filter((l) => l.status === "queued").length;
 
   function getScheduleLabel(lead: Lead): string {
-    if (lead.status === "queued") return `In queue (${campaign.sendingWindowStart}–${campaign.sendingWindowEnd})`;
+    if (lead.status === "queued") return `In queue (${campaign?.sendingWindowStart}–${campaign?.sendingWindowEnd})`;
     if (lead.status === "sent" && lead.nextFollowUpAt) return `Follow-up: ${formatDateTime(lead.nextFollowUpAt)}`;
     if (lead.status === "pending") return "Waiting to start";
     return "—";

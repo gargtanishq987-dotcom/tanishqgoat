@@ -310,7 +310,6 @@ export async function getQueuedLeads(limitCount = 50): Promise<Lead[]> {
   const snap = await db()
     .collection("leads")
     .where("status", "==", "queued")
-    .orderBy("createdAt", "asc")
     .limit(limitCount)
     .get();
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead));

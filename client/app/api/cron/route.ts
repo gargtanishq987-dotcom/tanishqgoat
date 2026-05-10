@@ -21,7 +21,12 @@ export async function GET(req: NextRequest) {
   const results = { sent: 0, followups: 0, errors: 0, skipped: 0 };
 
   try {
-    const settings = await getSettings();
+    let settings;
+    try {
+      settings = await getSettings();
+    } catch (e) {
+      return NextResponse.json({ success: false, stage: "firebase_init", error: String(e) }, { status: 500 });
+    }
     await resetDailySentCounts(settings.timezone);
 
     const [queuedLeads, dueFollowUps] = await Promise.all([

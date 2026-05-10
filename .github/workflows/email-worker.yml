@@ -1,0 +1,16 @@
+name: Email Worker
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger email worker
+        run: |
+          curl -s -X GET "https://client-one-delta-89.vercel.app/api/cron" \
+            -H "x-worker-secret: ${{ secrets.WORKER_SECRET }}" \
+            | cat
