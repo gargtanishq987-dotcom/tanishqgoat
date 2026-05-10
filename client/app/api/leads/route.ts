@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import {
-  getAllLeads, batchCreateLeads, updateCampaign, getCampaignById,
+  getAllLeads, batchCreateLeads, batchDeleteLeads, updateCampaign, getCampaignById,
   logEvent, getBlocklist, getLeadsByEmails,
 } from "@/lib/firestore-helpers";
 import { CsvRowSchema } from "@/lib/validations";
@@ -138,6 +138,28 @@ export async function POST(req: NextRequest) {
       { success: true, data: { imported: ids.length, blocked, duplicates, errors } },
       { status: 201 }
     );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Server error";
+    return NextResponse.json({ success: false, error: msg }, { status: msg === "Unauthorized" ? 401 : 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    await requireSession();
+    const body = await req.json().catch(() => null);
+    const { leadIds, campaignId } = body as { leadIds: string[]; campaignId: string };
+    if (!Array.isArray(leadIds) || !leadIds.length || !campaignId) {
+      return NextResponse.json({ success: false, error: "leadIds[] and campaignId required" }, { status: 400 });
+    }
+    await batchDeleteLeads(leadIds);
+    const campaign = await getCampaignById(campaignId);
+    if (campaign) {
+      await updateCampaign(campaignId, {
+        totalLeads: Math.max(0, (campaign.totalLeads ?? 0) - leadIds.length),
+      });
+    }
+    return NextResponse.json({ success: true, data: { deleted: leadIds.length } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Server error";
     return NextResponse.json({ success: false, error: msg }, { status: msg === "Unauthorized" ? 401 : 500 });

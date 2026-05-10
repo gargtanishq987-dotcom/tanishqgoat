@@ -636,6 +636,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const [previewAllOpen, setPreviewAllOpen] = useState(false);
   const [scheduleEdit, setScheduleEdit] = useState<Lead | null>(null);
   const [replyViewLead, setReplyViewLead] = useState<Lead | null>(null);
+  const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
 
   const { data: campaign, isLoading: loadingCampaign } = useQuery<Campaign>({
     queryKey: ["campaign", id],
@@ -708,6 +709,26 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     onSuccess: (res) => {
       if (res.success) {
         toast.success("Lead deleted");
+        qc.invalidateQueries({ queryKey: ["leads", id] });
+        qc.invalidateQueries({ queryKey: ["campaign", id] });
+        qc.invalidateQueries({ queryKey: ["campaigns"] });
+      } else {
+        toast.error(res.error ?? "Failed to delete");
+      }
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (leadIds: string[]) =>
+      fetch("/api/leads", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds, campaignId: id }),
+      }).then((r) => r.json()),
+    onSuccess: (res) => {
+      if (res.success) {
+        toast.success(`Deleted ${res.data.deleted} leads`);
+        setSelectedLeads(new Set());
         qc.invalidateQueries({ queryKey: ["leads", id] });
         qc.invalidateQueries({ queryKey: ["campaign", id] });
         qc.invalidateQueries({ queryKey: ["campaigns"] });
@@ -862,11 +883,31 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <FileText className="h-4 w-4" />
               Leads ({leads?.length ?? 0})
             </CardTitle>
-            {(leads?.length ?? 0) > 0 && (
-              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setPreviewAllOpen(true)}>
-                <Eye className="h-3.5 w-3.5 mr-1" /> Preview all
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {selectedLeads.size > 0 && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-7 text-xs"
+                  disabled={bulkDeleteMutation.isPending}
+                  onClick={() => {
+                    if (confirm(`Delete ${selectedLeads.size} selected lead${selectedLeads.size > 1 ? "s" : ""}?`)) {
+                      bulkDeleteMutation.mutate(Array.from(selectedLeads));
+                    }
+                  }}
+                >
+                  {bulkDeleteMutation.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Trash2 className="h-3.5 w-3.5 mr-1" />}
+                  Delete {selectedLeads.size} selected
+                </Button>
+              )}
+              {(leads?.length ?? 0) > 0 && (
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setPreviewAllOpen(true)}>
+                  <Eye className="h-3.5 w-3.5 mr-1" /> Preview all
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -889,6 +930,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-8">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 cursor-pointer"
+                        checked={selectedLeads.size === leads.length && leads.length > 0}
+                        ref={(el) => { if (el) el.indeterminate = selectedLeads.size > 0 && selectedLeads.size < leads.length; }}
+                        onChange={(e) => setSelectedLeads(e.target.checked ? new Set(leads.map((l) => l.id)) : new Set())}
+                      />
+                    </TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Inbox</TableHead>
@@ -903,8 +953,21 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 <TableBody>
                   {leads.map((lead) => {
                     const sendingInbox = inboxMap[lead.inboxId];
+                    const isSelected = selectedLeads.has(lead.id);
                     return (
-                      <TableRow key={lead.id}>
+                      <TableRow key={lead.id} className={isSelected ? "bg-blue-50 dark:bg-blue-950/20" : ""}>
+                        <TableCell className="w-8">
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-300 cursor-pointer"
+                            checked={isSelected}
+                            onChange={(e) => setSelectedLeads((prev) => {
+                              const next = new Set(prev);
+                              e.target.checked ? next.add(lead.id) : next.delete(lead.id);
+                              return next;
+                            })}
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">
                           {lead.firstName} {lead.lastName}
                           {lead.company && <span className="text-gray-400 text-xs ml-1">· {lead.company}</span>}

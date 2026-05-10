@@ -154,6 +154,16 @@ export async function deleteLead(id: string): Promise<void> {
   await db().collection("leads").doc(id).delete();
 }
 
+export async function batchDeleteLeads(ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += 500) {
+    const batch = db().batch();
+    for (const id of ids.slice(i, i + 500)) {
+      batch.delete(db().collection("leads").doc(id));
+    }
+    await batch.commit();
+  }
+}
+
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 export async function createMessage(data: Omit<Message, "id">): Promise<string> {
