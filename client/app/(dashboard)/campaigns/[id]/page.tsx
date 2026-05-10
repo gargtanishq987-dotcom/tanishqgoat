@@ -402,7 +402,8 @@ function ImportDialog({
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleParsed(results: Papa.ParseResult<Record<string, string>>, name?: string) {
-    if (results.errors.length) setParseErrors(results.errors.slice(0, 3).map((e) => e.message));
+    const realErrors = results.errors.filter((e) => !e.message.includes("empty string"));
+    if (realErrors.length) setParseErrors(realErrors.slice(0, 3).map((e) => e.message));
     const cols = Object.keys(results.data[0] ?? {});
     setColumns(cols);
     setRawRows(results.data);
@@ -413,9 +414,12 @@ function ImportDialog({
 
   function parseContent(content: string, name?: string) {
     setParseErrors([]);
-    Papa.parse<Record<string, string>>(content, {
+    // Strip BOM (added by Excel/Google Sheets exports) which creates an empty first header
+    const cleaned = content.replace(/^﻿/, "");
+    Papa.parse<Record<string, string>>(cleaned, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (h) => h.trim(),
       complete: (r) => handleParsed(r, name),
     });
   }
