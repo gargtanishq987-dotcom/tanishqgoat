@@ -10,6 +10,18 @@ import { sendEmail, hasThreadReply } from "@/lib/gmail-client";
 import { isWithinSendingWindow, todayString } from "@/lib/utils";
 import type { Lead, Inbox } from "@/lib/types";
 
+const PER_RUN_LIMIT = 10;
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function randomDelaySec(minSec: number, maxSec: number): number {
+  const lo = Math.max(1, minSec);
+  const hi = Math.max(lo + 1, maxSec);
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
 export async function GET(req: NextRequest) {
   const isCron = req.headers.get("x-vercel-cron") === "1";
   const secret = req.headers.get("x-worker-secret");
@@ -62,13 +74,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const minDelay = settings.minDelaySec ?? 30;
+    const maxDelay = settings.maxDelaySec ?? 60;
+
     const [queuedLeads, dueFollowUps, sentLeads] = await Promise.all([
-      getQueuedLeads(50),
-      getDueFollowUps(50),
+      getQueuedLeads(PER_RUN_LIMIT),
+      getDueFollowUps(PER_RUN_LIMIT),
       getSentLeadsForReplyCheck(20),
     ]);
 
     for (const lead of queuedLeads) {
+      const prevSent = results.sent;
       try {
         await processInitialEmail(lead, results);
       } catch (err) {
@@ -79,9 +95,15 @@ export async function GET(req: NextRequest) {
           metadata: { error: err instanceof Error ? err.message : "Unknown" },
         });
       }
+      // Randomized delay after each successful send — capped at 20s so 10 emails
+      // never exceed the 300s Vercel function timeout.
+      if (results.sent > prevSent && !isManual) {
+        await sleep(randomDelaySec(Math.min(minDelay, 20), Math.min(maxDelay, 20)) * 1000);
+      }
     }
 
     for (const lead of dueFollowUps) {
+      const prevFollowups = results.followups;
       try {
         await processFollowUp(lead, results);
       } catch (err) {
@@ -91,6 +113,9 @@ export async function GET(req: NextRequest) {
           type: "FOLLOWUP_FAILED",
           metadata: { error: err instanceof Error ? err.message : "Unknown" },
         });
+      }
+      if (results.followups > prevFollowups && !isManual) {
+        await sleep(randomDelaySec(Math.min(minDelay, 20), Math.min(maxDelay, 20)) * 1000);
       }
     }
 

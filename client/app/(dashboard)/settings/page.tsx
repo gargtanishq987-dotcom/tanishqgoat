@@ -21,8 +21,8 @@ import { formatRelative, formatDateTime } from "@/lib/utils";
 
 const TIMEZONES = [
   "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
-  "Europe/London", "Europe/Paris", "Europe/Berlin", "Asia/Tokyo", "Asia/Singapore",
-  "Australia/Sydney",
+  "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Rome",
+  "Asia/Tokyo", "Asia/Singapore", "Australia/Sydney",
 ];
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -42,6 +42,8 @@ const CRON_INTERVALS = [
 function GeneralSettings() {
   const qc = useQueryClient();
   const [runningNow, setRunningNow] = useState(false);
+  const [cronEnabled, setCronEnabled] = useState(true);
+  const [cronIntervalMinutes, setCronIntervalMinutes] = useState(5);
 
   const { data: settings, isLoading } = useQuery<AppSettings>({
     queryKey: ["settings"],
@@ -51,7 +53,11 @@ function GeneralSettings() {
   const { register, handleSubmit, reset, control, watch, setValue, formState: { isDirty } } = useForm<AppSettings>();
 
   useEffect(() => {
-    if (settings) reset(settings);
+    if (settings) {
+      reset(settings);
+      setCronEnabled(settings.cronEnabled ?? true);
+      setCronIntervalMinutes(settings.cronIntervalMinutes ?? 5);
+    }
   }, [settings, reset]);
 
   const updateMutation = useMutation({
@@ -64,6 +70,23 @@ function GeneralSettings() {
     onSuccess: (res) => {
       if (res.success) {
         toast.success("Settings saved");
+        qc.invalidateQueries({ queryKey: ["settings"] });
+      } else {
+        toast.error(res.error ?? "Failed to save");
+      }
+    },
+  });
+
+  const saveCronMutation = useMutation({
+    mutationFn: () =>
+      fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cronEnabled, cronIntervalMinutes }),
+      }).then((r) => r.json()),
+    onSuccess: (res) => {
+      if (res.success) {
+        toast.success("Schedule saved");
         qc.invalidateQueries({ queryKey: ["settings"] });
       } else {
         toast.error(res.error ?? "Failed to save");
@@ -91,8 +114,6 @@ function GeneralSettings() {
   }
 
   const sendingDays = watch("sendingDays") ?? [];
-  const cronEnabled = watch("cronEnabled") ?? true;
-  const cronIntervalMinutes = watch("cronIntervalMinutes") ?? 5;
 
   function toggleDay(day: number) {
     const current = sendingDays;
@@ -210,40 +231,28 @@ function GeneralSettings() {
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Enable automatic worker</p>
               <p className="text-xs text-gray-500 mt-0.5">When disabled, no emails will be sent automatically</p>
             </div>
-            <Controller
-              control={control}
-              name="cronEnabled"
-              render={({ field }) => (
-                <Switch
-                  checked={field.value ?? true}
-                  onCheckedChange={(v) => { field.onChange(v); setValue("cronEnabled", v, { shouldDirty: true }); }}
-                />
-              )}
+            <Switch
+              checked={cronEnabled}
+              onCheckedChange={(v) => setCronEnabled(v)}
             />
           </div>
 
           <div className="space-y-1.5">
             <Label>Run interval</Label>
-            <Controller
-              control={control}
-              name="cronIntervalMinutes"
-              render={({ field }) => (
-                <Select
-                  value={String(field.value ?? 5)}
-                  onValueChange={(v) => { field.onChange(Number(v)); setValue("cronIntervalMinutes", Number(v), { shouldDirty: true }); }}
-                  disabled={!cronEnabled}
-                >
-                  <SelectTrigger className="w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CRON_INTERVALS.map((opt) => (
-                      <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
+            <Select
+              value={String(cronIntervalMinutes)}
+              onValueChange={(v) => setCronIntervalMinutes(Number(v))}
+              disabled={!cronEnabled}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CRON_INTERVALS.map((opt) => (
+                  <SelectItem key={opt.value} value={String(opt.value)}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-xs text-gray-500">
               GitHub Actions triggers the worker every 10 min — this controls how often it actually processes emails. Set higher to throttle, lower to send faster.
             </p>
@@ -264,13 +273,22 @@ function GeneralSettings() {
                 {!cronEnabled
                   ? "Disabled"
                   : settings?.lastCronRunAt
-                    ? formatDateTime(settings.lastCronRunAt + (cronIntervalMinutes ?? 5) * 60_000)
+                    ? formatDateTime(settings.lastCronRunAt + cronIntervalMinutes * 60_000)
                     : "On next cron tick"}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex items-center gap-3 pt-1 flex-wrap">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => saveCronMutation.mutate()}
+              disabled={saveCronMutation.isPending}
+            >
+              {saveCronMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save schedule
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -281,7 +299,7 @@ function GeneralSettings() {
               {runningNow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
               Run worker now
             </Button>
-            <p className="text-xs text-gray-400">Bypasses the interval — useful for testing or immediate sends</p>
+            <p className="text-xs text-gray-400">Run Now bypasses the interval — useful for testing</p>
           </div>
         </CardContent>
       </Card>
