@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       const parsed = CsvRowSchema.safeParse(row);
       if (!parsed.success) {
         const issue = parsed.error.issues[0];
-        const field = issue?.path?.[0] ?? "row";
+        const field = String(issue?.path?.[0] ?? "row");
         const msg = issue?.message ?? "Invalid row";
         errors.push({ row: i + 1, error: `${field}: ${msg}` });
         continue;
