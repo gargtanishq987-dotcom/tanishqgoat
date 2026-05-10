@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "campaignId and leads[] required" }, { status: 400 });
     }
 
-    const { campaignId, leads: rawLeads } = body as { campaignId: string; leads: Record<string, string>[] };
+    const { campaignId, leads: rawLeads, allowDuplicates = false } = body as { campaignId: string; leads: Record<string, string>[]; allowDuplicates?: boolean };
 
     const campaign = await getCampaignById(campaignId);
     if (!campaign) {
@@ -67,8 +67,8 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Check duplicates across all campaigns
-      if (existingEmailSet.has(emailLower)) {
+      // Check duplicates across all campaigns (skipped when allowDuplicates is set)
+      if (!allowDuplicates && existingEmailSet.has(emailLower)) {
         duplicates++;
         errors.push({ row: i + 1, error: `${row.email} already exists in a campaign` });
         continue;

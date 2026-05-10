@@ -8,7 +8,7 @@ import Papa from "papaparse";
 import {
   ArrowLeft, Play, Pause, Square, Upload, Users, Send, TrendingUp,
   Calendar, MoreVertical, Loader2, FileText, ClipboardPaste, AlertCircle,
-  Eye, Pencil, Clock, MessageSquare,
+  Eye, Pencil, Clock, MessageSquare, Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -399,6 +399,7 @@ function ImportDialog({
   const [pasteText, setPasteText] = useState("");
   const [importing, setImporting] = useState(false);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [allowDuplicates, setAllowDuplicates] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleParsed(results: Papa.ParseResult<Record<string, string>>, name?: string) {
@@ -440,7 +441,7 @@ function ImportDialog({
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ campaignId, leads: mappedRows }),
+        body: JSON.stringify({ campaignId, leads: mappedRows, allowDuplicates }),
       }).then((r) => r.json());
       if (res.success) {
         const { imported, blocked, duplicates, errors } = res.data;
@@ -472,7 +473,7 @@ function ImportDialog({
     finally { setImporting(false); }
   }
 
-  function reset() { setStep("input"); setRawRows([]); setFilename(""); setPasteText(""); setParseErrors([]); }
+  function reset() { setStep("input"); setRawRows([]); setFilename(""); setPasteText(""); setParseErrors([]); setAllowDuplicates(false); }
 
   const missingRequired = FIELD_DEFS.filter((f) => f.required && !mapping[f.key]);
 
@@ -521,12 +522,23 @@ function ImportDialog({
                 </div>
               </TabsContent>
             </Tabs>
-            <div className="text-xs">
-              <button className="text-blue-600 dark:text-blue-400 hover:underline" onClick={() => {
-                const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
-                const url = URL.createObjectURL(blob); const a = document.createElement("a");
-                a.href = url; a.download = "leads_template.csv"; a.click(); URL.revokeObjectURL(url);
-              }}>Download template CSV</button>
+            <div className="flex items-center justify-between">
+              <div className="text-xs">
+                <button className="text-blue-600 dark:text-blue-400 hover:underline" onClick={() => {
+                  const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob); const a = document.createElement("a");
+                  a.href = url; a.download = "leads_template.csv"; a.click(); URL.revokeObjectURL(url);
+                }}>Download template CSV</button>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={allowDuplicates}
+                  onChange={(e) => setAllowDuplicates(e.target.checked)}
+                  className="rounded border-gray-300"
+                />
+                Allow duplicate emails
+              </label>
             </div>
           </>
         )}
@@ -688,6 +700,21 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         body: JSON.stringify(data),
       }).then((r) => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["leads", id] }),
+  });
+
+  const deleteLeadMutation = useMutation({
+    mutationFn: (leadId: string) =>
+      fetch(`/api/leads/${leadId}`, { method: "DELETE" }).then((r) => r.json()),
+    onSuccess: (res) => {
+      if (res.success) {
+        toast.success("Lead deleted");
+        qc.invalidateQueries({ queryKey: ["leads", id] });
+        qc.invalidateQueries({ queryKey: ["campaign", id] });
+        qc.invalidateQueries({ queryKey: ["campaigns"] });
+      } else {
+        toast.error(res.error ?? "Failed to delete");
+      }
+    },
   });
 
   if (loadingCampaign) {
@@ -964,6 +991,16 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                                   <Clock className="h-4 w-4 mr-2" /> Reschedule follow-up
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-600"
+                                onClick={() => {
+                                  if (confirm(`Delete ${lead.firstName} ${lead.lastName} (${lead.email})?`)) {
+                                    deleteLeadMutation.mutate(lead.id);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" /> Delete lead
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

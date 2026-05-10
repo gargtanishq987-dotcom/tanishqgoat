@@ -58,7 +58,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     await requireSession();
     const { id } = await params;
+    const lead = await getLeadById(id);
     await deleteLead(id);
+    if (lead) {
+      const campaign = await getCampaignById(lead.campaignId);
+      if (campaign) {
+        await updateCampaign(lead.campaignId, {
+          totalLeads: Math.max(0, (campaign.totalLeads ?? 1) - 1),
+        });
+      }
+    }
     return NextResponse.json({ success: true, data: null });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Server error";
