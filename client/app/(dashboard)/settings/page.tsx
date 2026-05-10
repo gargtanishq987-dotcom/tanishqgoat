@@ -245,7 +245,7 @@ function GeneralSettings() {
               )}
             />
             <p className="text-xs text-gray-500">
-              Vercel Cron fires every minute — this controls how often it actually processes emails
+              GitHub Actions triggers the worker every 10 min — this controls how often it actually processes emails. Set higher to throttle, lower to send faster.
             </p>
           </div>
 
