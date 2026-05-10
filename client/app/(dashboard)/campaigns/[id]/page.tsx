@@ -8,7 +8,7 @@ import Papa from "papaparse";
 import {
   ArrowLeft, Play, Pause, Square, Upload, Users, Send, TrendingUp,
   Calendar, MoreVertical, Loader2, FileText, ClipboardPaste, AlertCircle,
-  Eye, Pencil, Clock,
+  Eye, Pencil, Clock, MessageSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -148,6 +148,51 @@ function EmailPreviewDialog({
             </TabsContent>
           ) : null)}
         </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Reply Viewer Dialog ───────────────────────────────────────────────────────
+
+function ReplyViewerDialog({
+  lead,
+  open,
+  onOpenChange,
+}: {
+  lead: Lead;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-green-500" />
+            Reply from {lead.firstName} {lead.lastName}
+          </DialogTitle>
+          <DialogDescription>{lead.email} · {lead.repliedAt ? formatDateTime(lead.repliedAt) : "—"}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3">
+            <p className="text-xs text-gray-500 mb-1">Your subject</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{lead.subject}</p>
+          </div>
+          <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 p-4">
+            <p className="text-xs text-green-600 dark:text-green-400 mb-2">Their reply</p>
+            {lead.replyText ? (
+              <pre className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap font-sans leading-relaxed">
+                {lead.replyText}
+              </pre>
+            ) : (
+              <p className="text-sm text-gray-400 italic">
+                Reply detected but content could not be extracted — check your Gmail inbox directly.
+              </p>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -562,6 +607,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const [previewState, setPreviewState] = useState<{ leadIndex: number; tab: number } | null>(null);
   const [previewAllOpen, setPreviewAllOpen] = useState(false);
   const [scheduleEdit, setScheduleEdit] = useState<Lead | null>(null);
+  const [replyViewLead, setReplyViewLead] = useState<Lead | null>(null);
 
   const { data: campaign, isLoading: loadingCampaign } = useQuery<Campaign>({
     queryKey: ["campaign", id],
@@ -831,10 +877,19 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                           )}
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-1 flex-wrap">
+                          <div className="flex gap-1 flex-wrap items-center">
                             <Badge variant={STATUS_VARIANT[lead.status]}>{lead.status}</Badge>
                             {lead.positiveReply && <Badge variant="success">positive</Badge>}
                             {lead.bookedMeeting && <Badge variant="success">booked</Badge>}
+                            {lead.status === "replied" && (
+                              <button
+                                onClick={() => setReplyViewLead(lead)}
+                                className="text-green-500 hover:text-green-700"
+                                title="View reply"
+                              >
+                                <MessageSquare className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-xs text-gray-500 max-w-[180px]">
@@ -873,6 +928,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                               <DropdownMenuItem onClick={() => setPreviewState({ leadIndex: leads.indexOf(lead), tab: 0 })}>
                                 <Eye className="h-4 w-4 mr-2" /> Preview email
                               </DropdownMenuItem>
+                              {lead.status === "replied" && (
+                                <DropdownMenuItem onClick={() => setReplyViewLead(lead)}>
+                                  <MessageSquare className="h-4 w-4 mr-2" /> View reply
+                                </DropdownMenuItem>
+                              )}
                               {!lead.positiveReply && (
                                 <DropdownMenuItem onClick={() => updateLeadMutation.mutate({ leadId: lead.id, data: { positiveReply: true } })}>
                                   Mark positive reply
@@ -940,6 +1000,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           followupIndex={0}
           open={previewAllOpen}
           onOpenChange={(v) => { if (!v) setPreviewAllOpen(false); }}
+        />
+      )}
+
+      {replyViewLead && (
+        <ReplyViewerDialog
+          lead={replyViewLead}
+          open={!!replyViewLead}
+          onOpenChange={(v) => { if (!v) setReplyViewLead(null); }}
         />
       )}
 

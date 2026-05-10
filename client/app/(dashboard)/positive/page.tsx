@@ -15,7 +15,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Lead, Campaign } from "@/lib/types";
-import { formatDate, formatRelative } from "@/lib/utils";
+import { formatDate, formatRelative, formatDateTime } from "@/lib/utils";
 
 function LeadCard({ lead, campaigns }: { lead: Lead; campaigns: Campaign[] }) {
   const qc = useQueryClient();
@@ -138,6 +138,17 @@ function LeadCard({ lead, campaigns }: { lead: Lead; campaigns: Campaign[] }) {
               <p className="font-medium text-xs text-gray-500 mb-1">Initial subject</p>
               <p className="text-gray-800 dark:text-gray-200">{lead.subject}</p>
             </div>
+
+            {lead.replyText && (
+              <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 p-3">
+                <p className="text-xs text-green-600 dark:text-green-400 mb-1.5 font-medium">
+                  Their reply {lead.repliedAt ? `· ${formatDateTime(lead.repliedAt)}` : ""}
+                </p>
+                <pre className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto">
+                  {lead.replyText}
+                </pre>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label>Notes</Label>

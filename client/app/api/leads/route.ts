@@ -120,6 +120,8 @@ export async function POST(req: NextRequest) {
         notes: "",
         positiveReply: false,
         bookedMeeting: false,
+        replyText: null,
+        repliedAt: null,
       });
     }
 

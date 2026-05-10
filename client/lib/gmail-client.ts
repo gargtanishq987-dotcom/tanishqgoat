@@ -170,11 +170,28 @@ export async function sendEmail(params: {
   };
 }
 
+function extractPlainText(payload: {
+  mimeType?: string | null;
+  body?: { data?: string | null } | null;
+  parts?: typeof payload[] | null;
+}): string | null {
+  if (payload.mimeType === "text/plain" && payload.body?.data) {
+    return Buffer.from(payload.body.data, "base64url").toString("utf-8").trim();
+  }
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      const text = extractPlainText(part);
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
 export async function hasThreadReply(params: {
   inboxId: string;
   threadId: string;
   ourMessageId: string;
-}): Promise<boolean> {
+}): Promise<{ replied: boolean; replyText: string | null; repliedAt: number | null }> {
   try {
     const accessToken = await getValidAccessToken(params.inboxId);
     const oauth2 = await getOAuth2Client();
@@ -184,12 +201,22 @@ export async function hasThreadReply(params: {
     const thread = await gmail.users.threads.get({
       userId: "me",
       id: params.threadId,
+      format: "full",
     });
 
     const messages = thread.data.messages ?? [];
     const ourIndex = messages.findIndex((m) => m.id === params.ourMessageId);
-    return messages.length > ourIndex + 1;
+
+    if (messages.length <= ourIndex + 1) {
+      return { replied: false, replyText: null, repliedAt: null };
+    }
+
+    const replyMsg = messages[ourIndex + 1];
+    const replyText = replyMsg.payload ? extractPlainText(replyMsg.payload as Parameters<typeof extractPlainText>[0]) : null;
+    const repliedAt = replyMsg.internalDate ? Number(replyMsg.internalDate) : Date.now();
+
+    return { replied: true, replyText, repliedAt };
   } catch {
-    return false;
+    return { replied: false, replyText: null, repliedAt: null };
   }
 }

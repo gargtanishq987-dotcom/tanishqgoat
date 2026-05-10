@@ -94,6 +94,8 @@ export interface Lead {
   notes: string;
   positiveReply: boolean;
   bookedMeeting: boolean;
+  replyText: string | null;
+  repliedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }

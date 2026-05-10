@@ -148,18 +148,18 @@ async function processFollowUp(lead: Lead, results: Record<string, number>): Pro
   const campaign = await getCampaignById(lead.campaignId);
   if (!campaign || campaign.status !== "active") { results.skipped++; return; }
 
-  const replied = await hasThreadReply({
+  const { replied, replyText, repliedAt } = await hasThreadReply({
     inboxId: inbox.id,
     threadId: lead.gmailThreadId,
     ourMessageId: lead.gmailMessageId,
   });
 
   if (replied) {
-    await updateLead(lead.id, { status: "replied", nextFollowUpAt: null });
+    await updateLead(lead.id, { status: "replied", nextFollowUpAt: null, replyText, repliedAt });
     await logEvent({
       leadId: lead.id, campaignId: lead.campaignId, inboxId: inbox.id,
       type: "REPLY_DETECTED",
-      metadata: { fromEmail: inbox.email, toEmail: lead.email },
+      metadata: { fromEmail: inbox.email, toEmail: lead.email, replyText },
     });
     results.skipped++;
     return;
