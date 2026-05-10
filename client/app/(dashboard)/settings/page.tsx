@@ -51,33 +51,44 @@ function GeneralSettings() {
     queryFn: () => fetch("/api/settings").then((r) => r.json()).then((d) => d.data),
   });
 
-  const { register, handleSubmit, reset, watch, setValue } = useForm<AppSettings>({
-    defaultValues: {
-      defaultDailyLimit: 30,
-      minDelaySec: 30,
-      maxDelaySec: 60,
-      sendingWindowStart: "09:00",
-      sendingWindowEnd: "17:00",
-      unsubscribeText: "",
-      sendingDays: [1, 2, 3, 4, 5],
-    },
-  });
+  const [defaultDailyLimit, setDefaultDailyLimit] = useState(30);
+  const [minDelaySec, setMinDelaySec] = useState(30);
+  const [maxDelaySec, setMaxDelaySec] = useState(60);
+  const [sendingWindowStart, setSendingWindowStart] = useState("09:00");
+  const [sendingWindowEnd, setSendingWindowEnd] = useState("17:00");
+  const [unsubscribeText, setUnsubscribeText] = useState("To unsubscribe, reply STOP.");
+  const [sendingDays, setSendingDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
   useEffect(() => {
     if (settings) {
-      reset(settings);
       setCronEnabled(settings.cronEnabled ?? true);
       setCronIntervalMinutes(settings.cronIntervalMinutes ?? 5);
       setTimezone(settings.timezone ?? "Europe/Rome");
+      setDefaultDailyLimit(settings.defaultDailyLimit ?? 30);
+      setMinDelaySec(settings.minDelaySec ?? 30);
+      setMaxDelaySec(settings.maxDelaySec ?? 60);
+      setSendingWindowStart(settings.sendingWindowStart ?? "09:00");
+      setSendingWindowEnd(settings.sendingWindowEnd ?? "17:00");
+      setUnsubscribeText(settings.unsubscribeText ?? "To unsubscribe, reply STOP.");
+      setSendingDays(settings.sendingDays ?? [1, 2, 3, 4, 5]);
     }
-  }, [settings, reset]);
+  }, [settings]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: Partial<AppSettings>) =>
+    mutationFn: () =>
       fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, timezone }),
+        body: JSON.stringify({
+          timezone,
+          defaultDailyLimit,
+          minDelaySec,
+          maxDelaySec,
+          sendingWindowStart,
+          sendingWindowEnd,
+          unsubscribeText,
+          sendingDays,
+        }),
       }).then((r) => r.json()),
     onSuccess: (res) => {
       if (res.success) {
@@ -87,6 +98,7 @@ function GeneralSettings() {
         toast.error(res.error ?? "Failed to save");
       }
     },
+    onError: () => toast.error("Network error — settings not saved"),
   });
 
   const saveCronMutation = useMutation({
@@ -125,12 +137,10 @@ function GeneralSettings() {
     }
   }
 
-  const sendingDays = watch("sendingDays") ?? [];
-
   function toggleDay(day: number) {
-    const current = sendingDays;
-    const next = current.includes(day) ? current.filter((d: number) => d !== day) : [...current, day];
-    setValue("sendingDays", next, { shouldDirty: true });
+    setSendingDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
   }
 
   if (isLoading) {
@@ -142,7 +152,7 @@ function GeneralSettings() {
   }
 
   return (
-    <form onSubmit={handleSubmit((d) => updateMutation.mutate(d))} className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-2xl">
       <Card>
         <CardHeader>
           <CardTitle>Sending Window</CardTitle>
@@ -164,11 +174,11 @@ function GeneralSettings() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Window start</Label>
-              <Input type="time" {...register("sendingWindowStart")} />
+              <Input type="time" value={sendingWindowStart} onChange={(e) => setSendingWindowStart(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Window end</Label>
-              <Input type="time" {...register("sendingWindowEnd")} />
+              <Input type="time" value={sendingWindowEnd} onChange={(e) => setSendingWindowEnd(e.target.value)} />
             </div>
           </div>
 
@@ -197,17 +207,17 @@ function GeneralSettings() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label>Default daily limit per inbox</Label>
-            <Input type="number" min={1} max={500} {...register("defaultDailyLimit", { valueAsNumber: true })} />
+            <Input type="number" min={1} max={500} value={defaultDailyLimit} onChange={(e) => setDefaultDailyLimit(Number(e.target.value))} />
             <p className="text-xs text-gray-500">New inboxes will start at this limit (default: 30)</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Min delay (seconds)</Label>
-              <Input type="number" min={30} {...register("minDelaySec", { valueAsNumber: true })} />
+              <Input type="number" min={1} value={minDelaySec} onChange={(e) => setMinDelaySec(Number(e.target.value))} />
             </div>
             <div className="space-y-1.5">
               <Label>Max delay (seconds)</Label>
-              <Input type="number" min={30} {...register("maxDelaySec", { valueAsNumber: true })} />
+              <Input type="number" min={1} value={maxDelaySec} onChange={(e) => setMaxDelaySec(Number(e.target.value))} />
             </div>
           </div>
         </CardContent>
@@ -219,7 +229,7 @@ function GeneralSettings() {
           <CardDescription>Unsubscribe footer appended to all emails</CardDescription>
         </CardHeader>
         <CardContent>
-          <Textarea rows={3} {...register("unsubscribeText")} />
+          <Textarea rows={3} value={unsubscribeText} onChange={(e) => setUnsubscribeText(e.target.value)} />
         </CardContent>
       </Card>
 
@@ -311,12 +321,12 @@ function GeneralSettings() {
       </Card>
 
       <div className="flex justify-end">
-        <Button type="submit" disabled={updateMutation.isPending}>
+        <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}>
           {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           Save settings
         </Button>
       </div>
-    </form>
+    </div>
   );
 }
 
