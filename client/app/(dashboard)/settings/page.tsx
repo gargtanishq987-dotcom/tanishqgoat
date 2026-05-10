@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { Loader2, CheckCircle, XCircle, ExternalLink, Eye, EyeOff, Trash2, Plus, Play, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -44,19 +44,31 @@ function GeneralSettings() {
   const [runningNow, setRunningNow] = useState(false);
   const [cronEnabled, setCronEnabled] = useState(true);
   const [cronIntervalMinutes, setCronIntervalMinutes] = useState(5);
+  const [timezone, setTimezone] = useState("");
 
   const { data: settings, isLoading } = useQuery<AppSettings>({
     queryKey: ["settings"],
     queryFn: () => fetch("/api/settings").then((r) => r.json()).then((d) => d.data),
   });
 
-  const { register, handleSubmit, reset, control, watch, setValue, formState: { isDirty } } = useForm<AppSettings>();
+  const { register, handleSubmit, reset, watch, setValue, formState: { isDirty } } = useForm<AppSettings>({
+    defaultValues: {
+      defaultDailyLimit: 30,
+      minDelaySec: 30,
+      maxDelaySec: 60,
+      sendingWindowStart: "09:00",
+      sendingWindowEnd: "17:00",
+      unsubscribeText: "",
+      sendingDays: [1, 2, 3, 4, 5],
+    },
+  });
 
   useEffect(() => {
     if (settings) {
       reset(settings);
       setCronEnabled(settings.cronEnabled ?? true);
       setCronIntervalMinutes(settings.cronIntervalMinutes ?? 5);
+      setTimezone(settings.timezone ?? "Europe/Rome");
     }
   }, [settings, reset]);
 
@@ -65,7 +77,7 @@ function GeneralSettings() {
       fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ ...data, timezone }),
       }).then((r) => r.json()),
     onSuccess: (res) => {
       if (res.success) {
@@ -139,20 +151,14 @@ function GeneralSettings() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label>Timezone</Label>
-            <Controller
-              control={control}
-              name="timezone"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {TIMEZONES.map((tz) => (
-                      <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
+            <Select value={timezone} onValueChange={setTimezone}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TIMEZONES.map((tz) => (
+                  <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

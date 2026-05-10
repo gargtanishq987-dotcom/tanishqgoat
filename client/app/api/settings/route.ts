@@ -18,7 +18,7 @@ export async function PATCH(req: NextRequest) {
   try {
     await requireSession();
     const body = await req.json().catch(() => null);
-    const parsed = SettingsSchema.safeParse(body);
+    const parsed = SettingsSchema.partial().safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input" },
