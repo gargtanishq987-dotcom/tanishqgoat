@@ -98,7 +98,6 @@ export async function getValidAccessToken(inboxId: string): Promise<string> {
 }
 
 function sanitizePlainText(text: string): string {
-  // Strip any accidental HTML tags, normalize line endings
   return text
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<p[^>]*>/gi, "\n")
@@ -111,6 +110,40 @@ function sanitizePlainText(text: string): string {
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .trim();
+}
+
+function toQuotedPrintable(text: string): string {
+  const lines = text.split("\n");
+  const encoded = lines.map((line) => {
+    let result = "";
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      const code = line.charCodeAt(i);
+      if (ch === "=" || code > 126 || (code < 32 && code !== 9)) {
+        result += "=" + code.toString(16).toUpperCase().padStart(2, "0");
+      } else {
+        result += ch;
+      }
+    }
+    // Encode trailing space or tab
+    if (result.endsWith(" ") || result.endsWith("\t")) {
+      const last = result[result.length - 1];
+      result = result.slice(0, -1) + "=" + last.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0");
+    }
+    // Soft-wrap at 75 chars
+    const wrapped: string[] = [];
+    while (result.length > 75) {
+      let cut = 75;
+      // Don't split in the middle of a =XX sequence
+      if (result[cut - 1] === "=" || result[cut - 2] === "=") cut -= 2;
+      else if (result[cut - 1] === "=") cut -= 1;
+      wrapped.push(result.slice(0, cut) + "=");
+      result = result.slice(cut);
+    }
+    wrapped.push(result);
+    return wrapped.join("\r\n");
+  });
+  return encoded.join("\r\n");
 }
 
 export async function sendEmail(params: {
@@ -132,8 +165,7 @@ export async function sendEmail(params: {
     ? `"${params.fromName}" <${params.fromEmail}>`
     : params.fromEmail;
 
-  // Normalize to CRLF — RFC 2822 requires CRLF for all line endings in the message body
-  const cleanBody = sanitizePlainText(params.body).replace(/\n/g, "\r\n");
+  const cleanBody = toQuotedPrintable(sanitizePlainText(params.body));
   const subject = params.threadId ? `Re: ${params.subject}` : params.subject;
 
   const headers: string[] = [
@@ -142,7 +174,7 @@ export async function sendEmail(params: {
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 8bit",
+    "Content-Transfer-Encoding: quoted-printable",
   ];
 
   if (params.inReplyToMessageId) {
