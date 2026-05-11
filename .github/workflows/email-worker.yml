@@ -2,7 +2,7 @@ name: Email Worker
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,6 +11,12 @@ jobs:
     steps:
       - name: Trigger email worker
         run: |
-          curl -s -X GET "https://client-one-delta-89.vercel.app/api/cron" \
-            -H "x-worker-secret: ${{ secrets.WORKER_SECRET }}" \
-            | cat
+          response=$(curl -s -w "\n%{http_code}" -X GET "https://client-one-delta-89.vercel.app/api/cron" \
+            -H "x-worker-secret: ${{ secrets.WORKER_SECRET }}")
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n 1)
+          echo "HTTP $status: $body"
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Worker returned error status $status"
+            exit 1
+          fi
