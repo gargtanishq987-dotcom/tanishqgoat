@@ -115,27 +115,28 @@ function sanitizePlainText(text: string): string {
 function toQuotedPrintable(text: string): string {
   const lines = text.split("\n");
   const encoded = lines.map((line) => {
+    // Encode using actual UTF-8 bytes — charCodeAt gives Unicode code points,
+    // but QP requires each individual byte of the UTF-8 sequence encoded as =XX.
+    const bytes = Buffer.from(line, "utf8");
     let result = "";
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      const code = line.charCodeAt(i);
-      if (ch === "=" || code > 126 || (code < 32 && code !== 9)) {
-        result += "=" + code.toString(16).toUpperCase().padStart(2, "0");
+    for (const byte of bytes) {
+      if (byte === 0x3d || byte > 0x7e || (byte < 0x20 && byte !== 0x09)) {
+        result += "=" + byte.toString(16).toUpperCase().padStart(2, "0");
       } else {
-        result += ch;
+        result += String.fromCharCode(byte);
       }
     }
-    // Encode trailing space or tab
+    // Encode trailing space or tab (RFC 2045 requirement)
     if (result.endsWith(" ") || result.endsWith("\t")) {
       const last = result[result.length - 1];
       result = result.slice(0, -1) + "=" + last.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0");
     }
-    // Soft-wrap at 75 chars
+    // Soft-wrap at 75 chars with =\r\n (transport safety, clients join these back)
     const wrapped: string[] = [];
     while (result.length > 75) {
       let cut = 75;
-      // Don't split in the middle of a =XX sequence
-      if (result[cut - 1] === "=" || result[cut - 2] === "=") cut -= 2;
+      // Don't split inside a =XX sequence
+      if (result[cut - 2] === "=") cut -= 2;
       else if (result[cut - 1] === "=") cut -= 1;
       wrapped.push(result.slice(0, cut) + "=");
       result = result.slice(cut);
@@ -173,7 +174,7 @@ export async function sendEmail(params: {
     `To: ${params.to}`,
     `Subject: ${subject}`,
     "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Type: text/plain; charset=UTF-8; format=fixed",
     "Content-Transfer-Encoding: quoted-printable",
   ];
 
