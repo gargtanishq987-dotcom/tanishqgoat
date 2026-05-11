@@ -107,6 +107,8 @@ function sanitizePlainText(text: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&nbsp;/g, " ")
+    // Convert literal \n text (backslash + n) to real newlines — some CSV tools output this
+    .replace(/\\n/g, "\n")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .trim();

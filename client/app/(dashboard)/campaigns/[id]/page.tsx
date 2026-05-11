@@ -53,8 +53,12 @@ const TIMEZONES = [
   "Asia/Singapore", "Australia/Sydney",
 ];
 
-const CSV_TEMPLATE = `first_name,last_name,company,email,subject,body,followup_1,followup_2,followup_3
-John,Doe,Acme Corp,john@acme.com,Quick question about {{company}},Hi {{first_name}},\n\nI noticed that {{company}} is growing fast and wanted to reach out.\n\nWould you be open to a quick 15-min chat?\n\nBest,\n[Your Name],Hi {{first_name}},\n\nJust following up on my last email — any thoughts?\n\nBest,\n[Your Name],,`;
+// Body/followup fields are quoted so embedded newlines are preserved when opened in Excel/Sheets
+const CSV_TEMPLATE =
+  'first_name,last_name,company,email,subject,body,followup_1,followup_2,followup_3\n' +
+  'John,Doe,Acme Corp,john@acme.com,Quick question about {{company}},' +
+  '"Hi {{first_name}},\n\nI noticed that {{company}} is growing fast and wanted to reach out.\n\nWould you be open to a quick 15-min chat?\n\nBest,\n[Your Name]",' +
+  '"Hi {{first_name}},\n\nJust following up on my last email — any thoughts?\n\nBest,\n[Your Name]",,\n';
 
 // ─── Email Preview Dialog (single lead + prev/next navigation) ────────────────
 
